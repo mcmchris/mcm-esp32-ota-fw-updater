@@ -47,7 +47,7 @@ uint8_t mac[] = { 0x02, 0xAA, 0xBB, 0xCC, 0xDE, 0x02 };
 #define GH_OWNER "mcmchris"
 #define GH_REPO "esp32-s2-ota-blink-ethernet"
 #define FW_VERSION "v1.0.1"
-#define GH_TOKEN "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"
+#define GH_TOKEN "ghp_***************"
 
 // ========================================
 // INSTANCIA
