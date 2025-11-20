@@ -2,6 +2,11 @@
 #define MCM_GITHUB_OTA_H
 
 #include <Arduino.h>
+
+#if !defined(SPI_ETHERNET_SETTINGS)
+  #define SPI_ETHERNET_SETTINGS SPISettings(40000000, MSBFIRST, SPI_MODE0)
+#endif
+
 #include <SPI.h>
 #include <Ethernet.h>   
 #include <WiFi.h>
