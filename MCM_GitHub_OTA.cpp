@@ -6,14 +6,7 @@ extern "C" {
 #include "esp_log.h"
 }
 
-<<<<<<< HEAD
 // Buffer global compartido
-=======
-// ==========================================================
-// BUFFER GLOBAL COMPARTIDO (4KB) - ESTÁTICO
-// ==========================================================
-// Esto es clave para ahorrar RAM y permitir el buffer SSL grande
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
 static uint8_t _global_buf[4096];
 
 // ==========================================================
@@ -21,7 +14,6 @@ static uint8_t _global_buf[4096];
 // ==========================================================
 MCM_GitHub_OTA::MCM_GitHub_OTA(bool enableEthernet, bool enableWiFi) 
     : _useEthernet(enableEthernet), 
-<<<<<<< HEAD
       _useWiFi(enableWiFi)
 {
     // YA NO CREAMOS NADA AQUÍ. AHORRAMOS 36KB DE RAM AL INICIO.
@@ -29,13 +21,6 @@ MCM_GitHub_OTA::MCM_GitHub_OTA(bool enableEthernet, bool enableWiFi)
 
 MCM_GitHub_OTA::~MCM_GitHub_OTA() {
     // Nada que borrar
-=======
-      _useWiFi(enableWiFi),
-      // Inicializamos SSLClient con el buffer optimizado de 18200 bytes
-      _ssl_eth(_eth_client, TAs, TAs_NUM, -1, 1, 18200, SSLClient::SSL_NONE),
-      _ssl_wifi(_wifi_client, TAs, TAs_NUM, -1, 1, 18200, SSLClient::SSL_NONE)
-{
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
 }
 
 // ==========================================================
@@ -46,34 +31,17 @@ void MCM_GitHub_OTA::begin(const char* owner, const char* repo, const char* curr
     _repo = repo;
     _currentVersion = currentVersion;
     _token = token;
-<<<<<<< HEAD
-=======
-
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
     confirmOtaIfPending();
 }
 
 // ==========================================================
 // Helpers
 // ==========================================================
-<<<<<<< HEAD
 String MCM_GitHub_OTA::ua() { return String("esp32-ota/") + _currentVersion; }
 
 String MCM_GitHub_OTA::latestReleaseUrl() {
     String u = "https://api.github.com/repos/";
     u += _owner; u += '/'; u += _repo; u += "/releases/latest";
-=======
-String MCM_GitHub_OTA::ua() {
-    return String("esp32-ota/") + _currentVersion;
-}
-
-String MCM_GitHub_OTA::latestReleaseUrl() {
-    String u = "https://api.github.com/repos/";
-    u += _owner;
-    u += '/';
-    u += _repo;
-    u += "/releases/latest";
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
     return u;
 }
 
@@ -117,46 +85,25 @@ bool MCM_GitHub_OTA::canFit(size_t content_len) {
 }
 
 // ==========================================================
-<<<<<<< HEAD
 // Selección de Red
 // ==========================================================
 MCM_NetType MCM_GitHub_OTA::pickNetFast() {
     if (_useEthernet) {
         if (Ethernet.linkStatus() == LinkON) {
-=======
-// Selección de Red (No intrusiva)
-// ==========================================================
-MCM_NetType MCM_GitHub_OTA::pickNetFast() {
-    // Prioridad Ethernet
-    if (_useEthernet) {
-        // Verificamos estado sin llamar a begin()
-        if (Ethernet.linkStatus() == LinkON) {
-             // Asumimos que si hay Link y IP válida, está listo.
-             // La librería externa es responsable de mantener el DHCP lease.
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
              if (Ethernet.localIP() != IPAddress(0,0,0,0)) {
                  return MCM_NET_ETH;
              }
         }
     }
-<<<<<<< HEAD
-=======
-
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
     if (_useWiFi) {
         if (WiFi.status() == WL_CONNECTED) {
             return MCM_NET_WIFI;
         }
     }
-<<<<<<< HEAD
-=======
-
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
     return MCM_NET_NONE;
 }
 
 // ==========================================================
-<<<<<<< HEAD
 // Lógica Principal (OPTIMIZADA RAM)
 // ==========================================================
 void MCM_GitHub_OTA::checkForUpdate() {
@@ -187,31 +134,13 @@ void MCM_GitHub_OTA::checkForUpdate() {
         Serial.println("[MCM-OTA] OOM: Could not allocate SSL Buffer!");
         return;
     }
-=======
-// Lógica Principal de Check
-// ==========================================================
-void MCM_GitHub_OTA::checkForUpdate() {
-    MCM_NetType net = pickNetFast();
-    if (net == MCM_NET_NONE) {
-        Serial.println("[MCM-OTA] No network available for update check.");
-        return;
-    }
-
-    SSLClient* clientPtr = (net == MCM_NET_ETH) ? &_ssl_eth : &_ssl_wifi;
-    const char* netName = (net == MCM_NET_ETH) ? "ETH" : "WIFI";
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
 
     // --- Paso 1: Obtener JSON ---
     String body;
     Serial.printf("[MCM-OTA-%s] Checking for updates...\n", netName);
-<<<<<<< HEAD
     if (!getJson(clientPtr, latestReleaseUrl(), body, netName)) {
         Serial.println("[MCM-OTA] Failed to fetch release JSON");
         delete clientPtr; // ¡IMPORTANTE! Liberar memoria
-=======
-    if (!getJson(*clientPtr, latestReleaseUrl(), body, netName)) {
-        Serial.println("[MCM-OTA] Failed to fetch release JSON");
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
         return;
     }
 
@@ -220,30 +149,21 @@ void MCM_GitHub_OTA::checkForUpdate() {
     auto err = deserializeJson(doc, body);
     if (err) {
         Serial.printf("[MCM-OTA] JSON Error: %s\n", err.c_str());
-<<<<<<< HEAD
         delete clientPtr;
-=======
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
         return;
     }
 
     String remoteVersion = doc["tag_name"] | "";
     if (remoteVersion.length() == 0) {
         Serial.println("[MCM-OTA] No tag_name found");
-<<<<<<< HEAD
         delete clientPtr;
-=======
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
         return;
     }
 
     Serial.printf("[MCM-OTA] Local: %s, Remote: %s\n", _currentVersion.c_str(), remoteVersion.c_str());
     if (remoteVersion == _currentVersion) {
         Serial.println("[MCM-OTA] Device is up to date.");
-<<<<<<< HEAD
         delete clientPtr;
-=======
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
         return;
     }
 
@@ -264,34 +184,21 @@ void MCM_GitHub_OTA::checkForUpdate() {
 
     if (assetId < 0) {
         Serial.println("[MCM-OTA] No .bin asset found in release.");
-<<<<<<< HEAD
         delete clientPtr;
-=======
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
         return;
     }
 
     if (!canFit(assetSize)) {
         Serial.printf("[MCM-OTA] Update image too big (%u bytes)\n", (unsigned)assetSize);
-<<<<<<< HEAD
         delete clientPtr;
         return;
     }
 
     String assetUrl = String("https://api.github.com/repos/") + _owner + "/" + _repo + "/releases/assets/" + String(assetId);
-=======
-        return;
-    }
-
-    // Construir URL de API
-    String assetUrl = String("https://api.github.com/repos/") + _owner + "/" + _repo + "/releases/assets/" + String(assetId);
-    
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
     Serial.printf("[MCM-OTA] Downloading update from: %s\n", assetUrl.c_str());
 
     // --- Paso 4: Descargar y Flashear ---
     bool useAuth = (_token.length() > 0);
-<<<<<<< HEAD
     bool success = performUpdate(clientPtr, assetUrl, useAuth, netName);
 
     if (!success && !useAuth && browserUrl.length() > 0) {
@@ -311,27 +218,10 @@ void MCM_GitHub_OTA::checkForUpdate() {
 // ==========================================================
 
 bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyOut, const char* netName) {
-=======
-    bool success = performUpdate(*clientPtr, assetUrl, useAuth, netName);
-
-    // Fallback a browser_download_url si falla y no hay token (repos públicos a veces redirigen raro)
-    if (!success && !useAuth && browserUrl.length() > 0) {
-        Serial.println("[MCM-OTA] Retrying via browser_download_url...");
-        performUpdate(*clientPtr, browserUrl, false, netName);
-    }
-}
-
-// ==========================================================
-// Funciones de Red (Adaptadas para usar SSLClient genérico)
-// ==========================================================
-
-bool MCM_GitHub_OTA::getJson(SSLClient& client, const String& url, String& bodyOut, const char* netName) {
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
     String host = hostOf(url);
     String path = pathOf(url);
     int port = portOf(url);
 
-<<<<<<< HEAD
     client->setTimeout(15000); 
     
     if (!client->connect(host.c_str(), port)) {
@@ -353,76 +243,30 @@ bool MCM_GitHub_OTA::getJson(SSLClient& client, const String& url, String& bodyO
     RespHdrBin h;
     if (!readHeadersBin(client, h)) {
         client->stop();
-=======
-    client.setTimeout(15000); // 15s para JSON
-    
-    // Debug de Heap
-    // Serial.printf("[MCM-OTA-%s] Free Heap before SSL: %u\n", netName, ESP.getFreeHeap());
-
-    if (!client.connect(host.c_str(), port)) {
-        Serial.printf("[MCM-OTA-%s] TLS Connect failed to %s:%d\n", netName, host.c_str(), port);
-        client.stop();
-        return false;
-    }
-
-    client.print(F("GET ")); client.print(path); client.println(F(" HTTP/1.1"));
-    client.print(F("Host: ")); client.println(host);
-    client.print(F("User-Agent: ")); client.println(ua());
-    client.println(F("Accept: application/vnd.github+json"));
-    if (_token.length() > 0) {
-        client.print(F("Authorization: Bearer ")); client.println(_token);
-    }
-    client.println(F("Connection: close"));
-    client.println();
-
-    RespHdrBin h;
-    if (!readHeadersBin(client, h)) {
-        client.stop();
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
         return false;
     }
 
     if (h.status != 200) {
         Serial.printf("[MCM-OTA-%s] JSON HTTP Status %d\n", netName, h.status);
-<<<<<<< HEAD
         client->stop();
-=======
-        client.stop();
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
         return false;
     }
 
     bodyOut.reserve((h.contentLen > 0) ? (size_t)h.contentLen : 4096);
     
-<<<<<<< HEAD
     for (;;) {
         size_t n = client->readBytes(_global_buf, sizeof(_global_buf));
         if (n == 0) {
             if (client->connected()) continue;
-=======
-    // Leer cuerpo usando buffer global
-    for (;;) {
-        size_t n = client.readBytes(_global_buf, sizeof(_global_buf));
-        if (n == 0) {
-            if (client.connected()) continue;
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
             break;
         }
         bodyOut.concat(String((char*)_global_buf).substring(0, n));
     }
-<<<<<<< HEAD
     client->stop();
     return true;
 }
 
 bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bool addAuth, const char* netName) {
-=======
-    client.stop();
-    return true;
-}
-
-bool MCM_GitHub_OTA::performUpdate(SSLClient& client, const String& startUrl, bool addAuth, const char* netName) {
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
     String url = startUrl;
     size_t wroteTotal = 0;
     size_t expectedTotal = 0;
@@ -436,7 +280,6 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient& client, const String& startUrl, bo
         Serial.printf("[MCM-OTA-%s] Connecting %s:%d\n", netName, host.c_str(), port);
 
         RECONNECT:
-<<<<<<< HEAD
         client->setTimeout(120000);
         if (!client->connect(host.c_str(), port)) {
             Serial.printf("[MCM-OTA-%s] TLS Connect failed\n", netName);
@@ -465,71 +308,23 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient& client, const String& startUrl, bo
         RespHdrBin h;
         if (!readHeadersBin(client, h)) {
             client->stop();
-=======
-        client.setTimeout(120000); // 120s para binarios
-        if (!client.connect(host.c_str(), port)) {
-            Serial.printf("[MCM-OTA-%s] TLS Connect failed\n", netName);
-            client.stop();
-            return false;
-        }
-
-        client.print(F("GET ")); client.print(path); client.println(F(" HTTP/1.1"));
-        client.print(F("Host: ")); client.println(host);
-        client.print(F("User-Agent: ")); client.println(ua());
-        client.println(F("Accept: application/octet-stream"));
-        client.println(F("Accept-Encoding: identity"));
-        client.println(F("Connection: close"));
-        
-        if (addAuth && _token.length() > 0) {
-            client.print(F("Authorization: Bearer ")); client.println(_token);
-        }
-        
-        if (wroteTotal > 0) {
-            client.print(F("Range: bytes="));
-            client.print((unsigned long)wroteTotal);
-            client.println(F("-"));
-        }
-        client.println();
-
-        RespHdrBin h;
-        if (!readHeadersBin(client, h)) {
-            client.stop();
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
             Serial.println("[MCM-OTA] Header parse fail");
             return false;
         }
 
-<<<<<<< HEAD
         if (h.status >= 300 && h.status < 400 && h.location.length()) {
             Serial.printf("[MCM-OTA] Redirect -> %s\n", h.location.c_str());
             client->stop();
-=======
-        // Handle Redirects
-        if (h.status >= 300 && h.status < 400 && h.location.length()) {
-            Serial.printf("[MCM-OTA] Redirect -> %s\n", h.location.c_str());
-            client.stop();
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
             url = h.location;
             continue;
         }
 
-<<<<<<< HEAD
         if (!((h.status == 200 && wroteTotal == 0) || (h.status == 206 && wroteTotal > 0))) {
             Serial.printf("[MCM-OTA] HTTP Status %d\n", h.status);
             client->stop();
             return false;
         }
 
-=======
-        // Check Status (200 OK or 206 Partial)
-        if (!((h.status == 200 && wroteTotal == 0) || (h.status == 206 && wroteTotal > 0))) {
-            Serial.printf("[MCM-OTA] HTTP Status %d\n", h.status);
-            client.stop();
-            return false;
-        }
-
-        // Size Check
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
         if (!haveExpected) {
             if (h.contentLen > 0 && h.status == 200) {
                 expectedTotal = (size_t)h.contentLen;
@@ -540,27 +335,15 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient& client, const String& startUrl, bo
             }
         }
 
-<<<<<<< HEAD
-=======
-        // Update Begin
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
         if (wroteTotal == 0) {
             size_t beginSize = haveExpected ? expectedTotal : (size_t)UPDATE_SIZE_UNKNOWN;
             if (!Update.begin(beginSize)) {
                 Serial.printf("[MCM-OTA] Update.begin failed err=%u\n", Update.getError());
-<<<<<<< HEAD
                 client->stop();
-=======
-                client.stop();
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
                 return false;
             }
         }
 
-<<<<<<< HEAD
-=======
-        // Stream Body
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
         size_t wroteNow = 0;
         bool ok = false;
         if (h.chunked) {
@@ -572,12 +355,7 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient& client, const String& startUrl, bo
             wroteNow = wroteTotal - totalBefore;
 
             if (!ok) {
-<<<<<<< HEAD
                 client->stop();
-=======
-                client.stop();
-                // Resume logic
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
                 if (haveExpected && wroteTotal < expectedTotal) {
                     Serial.printf("\n[MCM-OTA] Connection closed @ %u / %u. Resuming...\n", (unsigned)wroteTotal, (unsigned)expectedTotal);
                     delay(1000);
@@ -586,11 +364,7 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient& client, const String& startUrl, bo
             }
         }
 
-<<<<<<< HEAD
         client->stop();
-=======
-        client.stop();
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
 
         if (!ok) {
             Update.end();
@@ -612,10 +386,6 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient& client, const String& startUrl, bo
             return true;
         }
         
-<<<<<<< HEAD
-=======
-        // Si no tenemos expected size pero terminó ok la descarga (raro sin chunked)
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
         if (!haveExpected) {
              if(Update.end()) {
                  Serial.println("[MCM-OTA] Update Success (Unknown Size)! Rebooting...");
@@ -631,28 +401,16 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient& client, const String& startUrl, bo
 
 
 // ==========================================================
-<<<<<<< HEAD
 // Internal Pipeline Utilities
 // ==========================================================
 
 bool MCM_GitHub_OTA::readLine(SSLClient* c, String& out, unsigned long timeoutMs) {
-=======
-// Internal Pipeline Utilities (Buffer Global)
-// ==========================================================
-
-bool MCM_GitHub_OTA::readLine(SSLClient& c, String& out, unsigned long timeoutMs) {
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
     out = "";
     unsigned long t0 = millis();
     bool gotCR = false;
     while (true) {
-<<<<<<< HEAD
         if (c->available()) {
             int ch = c->read();
-=======
-        if (c.available()) {
-            int ch = c.read();
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
             if (ch < 0) continue;
             char cch = (char)ch;
             if (gotCR && cch == '\n') return true;
@@ -670,11 +428,7 @@ bool MCM_GitHub_OTA::readLine(SSLClient& c, String& out, unsigned long timeoutMs
     }
 }
 
-<<<<<<< HEAD
 bool MCM_GitHub_OTA::readHeadersBin(SSLClient* c, RespHdrBin& h) {
-=======
-bool MCM_GitHub_OTA::readHeadersBin(SSLClient& c, RespHdrBin& h) {
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
     String line;
     if (!readLine(c, line)) return false;
     if (!line.startsWith("HTTP/1.1 ")) return false;
@@ -711,11 +465,7 @@ bool MCM_GitHub_OTA::writeAllToUpdate(uint8_t* data, size_t len) {
     return true;
 }
 
-<<<<<<< HEAD
 bool MCM_GitHub_OTA::pipeFixedToUpdate(SSLClient* c, long long contentLen, size_t displayTotal, size_t alreadyWrote, size_t& totalWrote) {
-=======
-bool MCM_GitHub_OTA::pipeFixedToUpdate(SSLClient& c, long long contentLen, size_t displayTotal, size_t alreadyWrote, size_t& totalWrote) {
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
     long long remaining = contentLen;
     totalWrote = alreadyWrote;
     size_t lastPct = 0;
@@ -723,11 +473,7 @@ bool MCM_GitHub_OTA::pipeFixedToUpdate(SSLClient& c, long long contentLen, size_
     while (remaining > 0) {
         delay(0); yield();
         size_t toRead = (remaining > (long long)sizeof(_global_buf)) ? sizeof(_global_buf) : (size_t)remaining;
-<<<<<<< HEAD
         size_t n = c->readBytes(_global_buf, toRead);
-=======
-        size_t n = c.readBytes(_global_buf, toRead);
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
         if (n == 0) return false;
 
         if (!writeAllToUpdate(_global_buf, n)) return false;
@@ -742,10 +488,6 @@ bool MCM_GitHub_OTA::pipeFixedToUpdate(SSLClient& c, long long contentLen, size_
                 fflush(stdout);
             }
         } else {
-<<<<<<< HEAD
-=======
-            // Simple progress indicator
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
             if ((totalWrote / 10240) != ((totalWrote - n) / 10240)) {
                  Serial.print("."); fflush(stdout);
             }
@@ -755,11 +497,7 @@ bool MCM_GitHub_OTA::pipeFixedToUpdate(SSLClient& c, long long contentLen, size_
     return true;
 }
 
-<<<<<<< HEAD
 bool MCM_GitHub_OTA::pipeChunkedToUpdate(SSLClient* c) {
-=======
-bool MCM_GitHub_OTA::pipeChunkedToUpdate(SSLClient& c) {
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
     while (true) {
         String szLine;
         if (!readLine(c, szLine)) return false;
@@ -772,11 +510,7 @@ bool MCM_GitHub_OTA::pipeChunkedToUpdate(SSLClient& c) {
         long remaining = chunk;
         while (remaining > 0) {
             size_t want = (remaining > (long)sizeof(_global_buf)) ? sizeof(_global_buf) : (size_t)remaining;
-<<<<<<< HEAD
             size_t n = c->readBytes(_global_buf, want);
-=======
-            size_t n = c.readBytes(_global_buf, want);
->>>>>>> 9dd72c7a9cd7fcd69037ca2a62c21df29e2eb557
             if (n == 0) return false;
             if (!writeAllToUpdate(_global_buf, n)) return false;
             remaining -= n;
