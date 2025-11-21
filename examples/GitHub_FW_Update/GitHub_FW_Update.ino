@@ -40,14 +40,14 @@ static uint32_t BLINK_MS = 1000;
 uint8_t mac[] = { 0x02, 0xAA, 0xBB, 0xCC, 0xDE, 0x02 };
 
 // --- WiFi Credentials ---
-#define WIFI_SSID "CLARO403"
-#define WIFI_PASS "2336879809"
+#define WIFI_SSID "*******" // Your SSID
+#define WIFI_PASS "*******" // Your Password
 
 // --- GitHub OTA ---
-#define GH_OWNER "mcmchris"
-#define GH_REPO "esp32-s2-ota-blink-ethernet"
-#define FW_VERSION "v1.0.1"
-#define GH_TOKEN "ghp_***************"
+#define GH_OWNER "********" // Your GitHub User or Organization
+#define GH_REPO "******************" // Your Repository
+#define FW_VERSION "v1.0.1" // Current Firmware Version
+#define GH_TOKEN "ghp_***************"  // Your GitHub Token (if needed)
 
 // ========================================
 // INSTANCE
