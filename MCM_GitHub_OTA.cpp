@@ -123,9 +123,11 @@ void MCM_GitHub_OTA::checkForUpdate() {
     
     if (net == MCM_NET_ETH) {
         // Wrap Ethernet
+        Serial.println("[MCM-OTA] Using Ethernet for OTA");
         clientPtr = new SSLClient(_eth_client, TAs, TAs_NUM, -1, 1, 18200, SSLClient::SSL_NONE);
     } else {
         // Wrap WiFi
+        Serial.println("[MCM-OTA] Using WiFi for OTA");
         clientPtr = new SSLClient(_wifi_client, TAs, TAs_NUM, -1, 1, 18200, SSLClient::SSL_NONE);
     }
 

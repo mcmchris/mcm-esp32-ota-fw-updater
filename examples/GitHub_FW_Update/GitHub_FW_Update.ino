@@ -40,14 +40,14 @@ static uint32_t BLINK_MS = 1000;
 uint8_t mac[] = { 0x02, 0xAA, 0xBB, 0xCC, 0xDE, 0x02 };
 
 // --- WiFi Credentials ---
-#define WIFI_SSID "*******" // Your SSID
-#define WIFI_PASS "*******" // Your Password
+#define WIFI_SSID "**********" // Your SSID
+#define WIFI_PASS "**********" // Your Password
 
 // --- GitHub OTA ---
-#define GH_OWNER "********" // Your GitHub User or Organization
-#define GH_REPO "******************" // Your Repository
-#define FW_VERSION "v1.0.1" // Current Firmware Version
-#define GH_TOKEN "ghp_***************"  // Your GitHub Token (if needed)
+#define GH_OWNER "**********" // Your GitHub User or Organization
+#define GH_REPO "****************" // Your Repository
+#define FW_VERSION "v1.0.2" // Current Firmware Version
+#define GH_TOKEN "ghp_****************"  // Your GitHub Token (if needed)
 
 // ========================================
 // INSTANCE
@@ -55,11 +55,18 @@ uint8_t mac[] = { 0x02, 0xAA, 0xBB, 0xCC, 0xDE, 0x02 };
 // By passing the constants here, the library optimizes internal memory
 MCM_GitHub_OTA ota(ENABLE_ETH, ENABLE_WIFI);
 
+// Variable to track previous Ethernet state for hot-swapping
+bool ethWasConnected = false;
+
 void setup() {
   Serial.begin(115200);
+  while(!Serial){}
   delay(2000);
-  Serial.println("\n=== SMART NETWORK START ===");
 
+  pinMode(LED_PIN, OUTPUT);
+
+  Serial.println("\n=== SMART NETWORK START ===");
+  
   bool internetReady = false;
 
   // ---------------------------------------------------------
@@ -116,19 +123,35 @@ TRY_DHCP:
   // We enter here if:
   // a) ENABLE_WIFI is true AND no Ethernet is defined.
   // b) ENABLE_WIFI is true AND Ethernet failed (cable disconnected or DHCP error).
-  if (ENABLE_WIFI) {
+if (ENABLE_WIFI) {
     if (!internetReady) {
-      Serial.println("[WIFI] Starting WiFi connection...");
+      Serial.print("[WIFI] Starting WiFi connection to ");
+      Serial.println(WIFI_SSID);
+      
       WiFi.mode(WIFI_STA);
       WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-      // We don't block here with an eternal while loop.
-      // Let WiFi connect in the background.
-      // The library will check WiFi.status() when necessary.
-      Serial.println("[WIFI] Connection requested in background.");
+      // === NEW: WAIT FOR CONNECTION LOOP ===
+      unsigned long startAttempt = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 10000) {
+        Serial.print(".");
+        delay(500);
+      }
+      Serial.println();
+
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.print("[WIFI] Connected! IP: ");
+        Serial.println(WiFi.localIP());
+      } else {
+        Serial.println("[WIFI] Connection Failed (Timeout). System will continue.");
+      }
+      // =====================================
+      
     } else {
-      Serial.println("[WIFI] Ethernet active. WiFi in standby (off) to save power.");
-      WiFi.mode(WIFI_OFF);
+      Serial.println("[WIFI] Ethernet active. WiFi in standby.");
+      // We don't turn it off completely if you want hot-swap, 
+      // but keeping it disconnected saves interference/power.
+      // WiFi.mode(WIFI_OFF); 
     }
   }
 
@@ -147,30 +170,101 @@ TRY_DHCP:
 }
 
 void loop() {
-  // Ethernet maintenance only if active and connected
-  if (ENABLE_ETH) {
+  
+  // 1. Manage Network Switching (Hot-Swap)
+  manageNetworkRedundancy();
+
+  // 2. Ethernet Maintenance (DHCP renewal) - Only if cable is connected
+  if (ENABLE_ETH && ethWasConnected) {
     Ethernet.maintain();
   }
 
-  // ============================================================
-  // OTA TIMER
-  // ============================================================
-  // Use casting to (long) to handle millis() overflow correctly
+  // 3. OTA Timer
   if ((long)(millis() - nextOtaCheck) >= 0) {
-
-    // 1. Execute check
     ota.checkForUpdate();
-
-    // 2. Schedule the NEXT check (within 1 hour)
     nextOtaCheck = millis() + OTA_PERIODIC_INTERVAL;
-
     Serial.println("[LOOP] Next check scheduled in 1 hour.");
   }
 
-  // Your blocking code or blink
+  // 4. Blink
   static unsigned long lastBlink = 0;
   if (millis() - lastBlink > BLINK_MS) {
     lastBlink = millis();
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+  }
+}
+
+// Helper function to handle Redundancy logic
+void manageNetworkRedundancy() {
+  static unsigned long lastRedundancyCheck = 0;
+  static unsigned long lastWifiAttempt = 0; // Para no saturar intentos de WiFi
+  
+  // Revisar estado físico cada 2 segundos (para detectar cable rápido)
+  if (millis() - lastRedundancyCheck > 2000) {
+    lastRedundancyCheck = millis();
+
+    // --- ETHERNET CHECK ---
+    if (ENABLE_ETH) {
+      EthernetLinkStatus link = Ethernet.linkStatus();
+      
+      // CASO 1: Cable conectado (Prioridad)
+      if (link == LinkON) {
+        if (!ethWasConnected) {
+           Serial.println("[NET] Ethernet Cable Plugged in. Requesting DHCP...");
+           
+           // Intentar levantar Ethernet
+           Ethernet.begin(mac); 
+           
+           if (Ethernet.localIP() != IPAddress(0,0,0,0)) {
+               Serial.print("[ETH] IP Obtained: ");
+               Serial.println(Ethernet.localIP());
+               ethWasConnected = true;
+               
+               // Opcional: Apagar WiFi para ahorrar energía y evitar conflictos
+               Serial.println("[NET] Stopping WiFi to save power.");
+               WiFi.disconnect();
+               WiFi.mode(WIFI_OFF); 
+           } else {
+               Serial.println("[ETH] DHCP Failed.");
+           }
+        }
+      }
+      // CASO 2: Cable desconectado (Fallback)
+      else if (link == LinkOFF) {
+        if (ethWasConnected) {
+          Serial.println("[NET] Ethernet Cable Unplugged. Switching to WiFi...");
+          ethWasConnected = false;
+          
+          // IMPORTANTE: Encender la radio inmediatamente
+          WiFi.mode(WIFI_STA);
+          WiFi.begin(WIFI_SSID, WIFI_PASS);
+          lastWifiAttempt = millis(); // Resetear contador de intentos
+        }
+      }
+    }
+
+    // --- WIFI CHECK (Solo si no hay Ethernet) ---
+    if (ENABLE_WIFI && !ethWasConnected) {
+      
+      // Si no estamos conectados...
+      if (WiFi.status() != WL_CONNECTED) {
+        
+        // ... Y han pasado 10 segundos desde el último intento
+        if (millis() - lastWifiAttempt > 10000) {
+          lastWifiAttempt = millis(); // Guardar tiempo actual
+          
+          Serial.println("[NET] WiFi disconnected. Retrying connection...");
+          
+          // Asegurar que la radio esté encendida
+          if (WiFi.getMode() != WIFI_STA) {
+             WiFi.mode(WIFI_STA);
+          }
+          
+          // Usar reconnect() es más suave que disconnect/begin
+          // No llames a disconnect() aquí, rompe el proceso en curso.
+          WiFi.reconnect(); 
+        }
+      }
+    }
   }
 }
