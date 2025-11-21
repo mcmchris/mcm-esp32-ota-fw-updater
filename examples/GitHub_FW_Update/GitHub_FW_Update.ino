@@ -207,12 +207,12 @@ void manageNetworkRedundancy() {
     if (ENABLE_ETH) {
       EthernetLinkStatus link = Ethernet.linkStatus();
       
-      // CASO 1: Cable conectado (Prioridad)
+      // CASE 1: Cable connected (Priority)
       if (link == LinkON) {
         if (!ethWasConnected) {
            Serial.println("[NET] Ethernet Cable Plugged in. Requesting DHCP...");
            
-           // Intentar levantar Ethernet
+           // Attempt to bring up Ethernet
            Ethernet.begin(mac); 
            
            if (Ethernet.localIP() != IPAddress(0,0,0,0)) {
@@ -220,7 +220,7 @@ void manageNetworkRedundancy() {
                Serial.println(Ethernet.localIP());
                ethWasConnected = true;
                
-               // Opcional: Apagar WiFi para ahorrar energía y evitar conflictos
+               // Optional: Turn off WiFi to save power and avoid conflicts
                Serial.println("[NET] Stopping WiFi to save power.");
                WiFi.disconnect();
                WiFi.mode(WIFI_OFF); 
@@ -229,39 +229,39 @@ void manageNetworkRedundancy() {
            }
         }
       }
-      // CASO 2: Cable desconectado (Fallback)
+      // CASE 2: Cable disconnected (Fallback)
       else if (link == LinkOFF) {
         if (ethWasConnected) {
           Serial.println("[NET] Ethernet Cable Unplugged. Switching to WiFi...");
           ethWasConnected = false;
           
-          // IMPORTANTE: Encender la radio inmediatamente
+          // IMPORTANT: Turn on the radio immediately
           WiFi.mode(WIFI_STA);
           WiFi.begin(WIFI_SSID, WIFI_PASS);
-          lastWifiAttempt = millis(); // Resetear contador de intentos
+          lastWifiAttempt = millis(); // Reset attempt counter
         }
       }
     }
 
-    // --- WIFI CHECK (Solo si no hay Ethernet) ---
+    // --- WIFI CHECK (Only if no Ethernet) ---
     if (ENABLE_WIFI && !ethWasConnected) {
       
-      // Si no estamos conectados...
+      // If not connected...
       if (WiFi.status() != WL_CONNECTED) {
         
-        // ... Y han pasado 10 segundos desde el último intento
+        // ... And 10 seconds have passed since the last attempt
         if (millis() - lastWifiAttempt > 10000) {
-          lastWifiAttempt = millis(); // Guardar tiempo actual
+          lastWifiAttempt = millis(); // Save current time
           
           Serial.println("[NET] WiFi disconnected. Retrying connection...");
           
-          // Asegurar que la radio esté encendida
+          // Ensure the radio is on
           if (WiFi.getMode() != WIFI_STA) {
              WiFi.mode(WIFI_STA);
           }
           
-          // Usar reconnect() es más suave que disconnect/begin
-          // No llames a disconnect() aquí, rompe el proceso en curso.
+          // Using reconnect() is smoother than disconnect/begin
+          // Do not call disconnect() here, it breaks the ongoing process.
           WiFi.reconnect(); 
         }
       }
