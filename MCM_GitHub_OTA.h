@@ -33,7 +33,7 @@ struct RespHdrBin {
 class MCM_GitHub_OTA {
 public:
     MCM_GitHub_OTA(bool enableEthernet, bool enableWiFi);
-    ~MCM_GitHub_OTA(); // Destructor vacío ahora, pero lo dejamos por compatibilidad
+    ~MCM_GitHub_OTA(); 
 
     void begin(const char* owner, const char* repo, const char* currentVersion, const char* token = "");
     void checkForUpdate();
@@ -47,11 +47,10 @@ private:
     bool _useEthernet;
     bool _useWiFi;
 
-    // Clientes base (ligeros)
+    // Light clients
     EthernetClient _eth_client;
     WiFiClient     _wifi_client;
 
-    // YA NO GUARDAMOS LOS OBJETOS SSL AQUÍ PARA AHORRAR RAM
     
     // Helpers
     String ua();

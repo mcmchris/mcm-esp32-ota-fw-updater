@@ -3,22 +3,22 @@
 #include <Ethernet.h>
 #include <WiFi.h>
 
-// ===== 1. INCLUIR LIBRERÍA =====
+// ===== 1. INCLUDE LIBRARY =====
 #include <MCM_GitHub_OTA.h>
 
 // ========================================
-// CONFIGURACIÓN DE PROTOCOLOS (¡MODIFICA AQUÍ!)
+// PROTOCOL CONFIGURATION (MODIFY HERE!)
 // ========================================
-// Define qué hardware quieres usar.
-// La librería solo reservará RAM para lo que actives aquí.
+// Define which hardware you want to use.
+// The library will only reserve RAM for what you enable here.
 const bool ENABLE_ETH = true;
 const bool ENABLE_WIFI = true;
 
-// --- Tiempos OTA ---
-const unsigned long OTA_INITIAL_DELAY = 10000;        // 10 segundos después del boot
-const unsigned long OTA_PERIODIC_INTERVAL = 3600000;  // 1 hora (60 * 60 * 1000)
+// --- OTA Timings ---
+const unsigned long OTA_INITIAL_DELAY = 10000;        // 10 seconds after boot
+const unsigned long OTA_PERIODIC_INTERVAL = 3600000;  // 1 hour (60 * 60 * 1000)
 
-// Variable para controlar cuándo toca la siguiente revisión
+// Variable to control when the next check is due
 unsigned long nextOtaCheck = 0;
 
 
@@ -27,10 +27,10 @@ unsigned long nextOtaCheck = 0;
 static uint32_t BLINK_MS = 1000;
 
 // ========================================
-// CONFIGURACIÓN DE HARDWARE & RED
+// HARDWARE & NETWORK CONFIGURATION
 // ========================================
 
-// --- Pines SPI Ethernet (W5500) ---
+// --- Ethernet SPI Pins (W5500) ---
 #define ETH_CS 33
 #define ETH_SCLK 36
 #define ETH_MISO 37
@@ -39,40 +39,40 @@ static uint32_t BLINK_MS = 1000;
 
 uint8_t mac[] = { 0x02, 0xAA, 0xBB, 0xCC, 0xDE, 0x02 };
 
-// --- Credenciales WiFi ---
+// --- WiFi Credentials ---
 #define WIFI_SSID "CLARO403"
 #define WIFI_PASS "2336879809"
 
-// --- OTA GitHub ---
+// --- GitHub OTA ---
 #define GH_OWNER "mcmchris"
 #define GH_REPO "esp32-s2-ota-blink-ethernet"
 #define FW_VERSION "v1.0.1"
 #define GH_TOKEN "ghp_***************"
 
 // ========================================
-// INSTANCIA
+// INSTANCE
 // ========================================
-// Al pasar las constantes aquí, la librería optimiza la memoria interna
+// By passing the constants here, the library optimizes internal memory
 MCM_GitHub_OTA ota(ENABLE_ETH, ENABLE_WIFI);
 
 void setup() {
   Serial.begin(115200);
   delay(2000);
-  Serial.println("\n=== ARRANQUE INTELIGENTE DE RED ===");
+  Serial.println("\n=== SMART NETWORK START ===");
 
   bool internetReady = false;
 
   // ---------------------------------------------------------
-  // 1. BLOQUE ETHERNET (Solo se ejecuta si ENABLE_ETH es true)
+  // 1. ETHERNET BLOCK (Only runs if ENABLE_ETH is true)
   // ---------------------------------------------------------
   if (ENABLE_ETH) {
-    Serial.println("[ETH] Iniciando Hardware Ethernet...");
+    Serial.println("[ETH] Starting Ethernet Hardware...");
 
-    // A. Configurar SPI solo si usamos Ethernet
+    // A. Configure SPI only if using Ethernet
     SPI.begin(ETH_SCLK, ETH_MISO, ETH_MOSI);
     Ethernet.init(ETH_CS);
 
-    // B. Reset Manual W5500
+    // B. W5500 Manual Reset
     if (ETH_RST >= 0) {
       pinMode(ETH_RST, OUTPUT);
       digitalWrite(ETH_RST, HIGH);
@@ -83,27 +83,27 @@ void setup() {
       delay(10);
     }
 
-    // C. VERIFICACIÓN DE CABLE (LINK STATUS)
+    // C. CABLE VERIFICATION (LINK STATUS)
     EthernetLinkStatus link = Ethernet.linkStatus();
 
     if (link == LinkOFF) {
-      Serial.println("[ETH] Cable desconectado (LinkOFF). Saltando DHCP.");
+      Serial.println("[ETH] Cable disconnected (LinkOFF). Skipping DHCP.");
     } else if (link == Unknown) {
-      // A veces el W5500 tarda un instante en levantar el PHY, damos un mini respiro
+      // Sometimes the W5500 takes a moment to bring up the PHY, give it a small breather
       delay(100);
       if (Ethernet.linkStatus() == LinkOFF) {
-        Serial.println("[ETH] Cable desconectado. Saltando DHCP.");
+        Serial.println("[ETH] Cable disconnected. Skipping DHCP.");
       } else {
-        goto TRY_DHCP;  // Cable detectado
+        goto TRY_DHCP;  // Cable detected
       }
     } else {
 TRY_DHCP:
-      Serial.println("[ETH] Cable detectado. Intentando DHCP...");
-      // Solo entramos al timeout de DHCP si el cable está puesto
+      Serial.println("[ETH] Cable detected. Attempting DHCP...");
+      // Only enter DHCP timeout if the cable is plugged in
       if (Ethernet.begin(mac) == 0) {
-        Serial.println("[ETH] Falló configuración DHCP.");
+        Serial.println("[ETH] DHCP configuration failed.");
       } else {
-        Serial.print("[ETH] Conectado! IP: ");
+        Serial.print("[ETH] Connected! IP: ");
         Serial.println(Ethernet.localIP());
         internetReady = true;
       }
@@ -111,63 +111,63 @@ TRY_DHCP:
   }
 
   // ---------------------------------------------------------
-  // 2. BLOQUE WIFI (Lógica de respaldo o principal)
+  // 2. WIFI BLOCK (Backup or main logic)
   // ---------------------------------------------------------
-  // Entramos aquí si:
-  // a) ENABLE_WIFI es true Y no hay Ethernet definido.
-  // b) ENABLE_WIFI es true Y Ethernet falló (cable desconectado o error DHCP).
+  // We enter here if:
+  // a) ENABLE_WIFI is true AND no Ethernet is defined.
+  // b) ENABLE_WIFI is true AND Ethernet failed (cable disconnected or DHCP error).
   if (ENABLE_WIFI) {
     if (!internetReady) {
-      Serial.println("[WIFI] Iniciando conexión WiFi...");
+      Serial.println("[WIFI] Starting WiFi connection...");
       WiFi.mode(WIFI_STA);
       WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-      // No bloqueamos aquí con un while loop eterno.
-      // Dejamos que el WiFi conecte en segundo plano.
-      // La librería verificará WiFi.status() cuando sea necesario.
-      Serial.println("[WIFI] Conexión solicitada en segundo plano.");
+      // We don't block here with an eternal while loop.
+      // Let WiFi connect in the background.
+      // The library will check WiFi.status() when necessary.
+      Serial.println("[WIFI] Connection requested in background.");
     } else {
-      Serial.println("[WIFI] Ethernet activo. WiFi en standby (apagado) para ahorrar energía.");
+      Serial.println("[WIFI] Ethernet active. WiFi in standby (off) to save power.");
       WiFi.mode(WIFI_OFF);
     }
   }
 
   // ---------------------------------------------------------
-  // 3. CONFIGURAR OTA
+  // 3. CONFIGURE OTA
   // ---------------------------------------------------------
   ota.begin(GH_OWNER, GH_REPO, FW_VERSION, GH_TOKEN);
 
   // ============================================================
-  // LÓGICA DE TIEMPO: Programar la PRIMERA ejecución
+  // TIME LOGIC: Schedule the FIRST execution
   // ============================================================
-  // "millis() + 10000" significa: Ejecutar 10 segundos después de ahora.
+  // "millis() + 10000" means: Execute 10 seconds from now.
   nextOtaCheck = millis() + OTA_INITIAL_DELAY;
 
-  Serial.printf("=== LISTO. Primera revisión OTA en %lu seg ===\n", OTA_INITIAL_DELAY / 1000);
+  Serial.printf("=== READY. First OTA check in %lu sec ===\n", OTA_INITIAL_DELAY / 1000);
 }
 
 void loop() {
-  // Mantenimiento de Ethernet solo si está activo y conectado
+  // Ethernet maintenance only if active and connected
   if (ENABLE_ETH) {
     Ethernet.maintain();
   }
 
   // ============================================================
-  // TEMPORIZADOR OTA
+  // OTA TIMER
   // ============================================================
-  // Usamos casting a (long) para manejar el desbordamiento de millis() correctamente
+  // Use casting to (long) to handle millis() overflow correctly
   if ((long)(millis() - nextOtaCheck) >= 0) {
 
-    // 1. Ejecutar la revisión
+    // 1. Execute check
     ota.checkForUpdate();
 
-    // 2. Programar la SIGUIENTE revisión (dentro de 1 hora)
+    // 2. Schedule the NEXT check (within 1 hour)
     nextOtaCheck = millis() + OTA_PERIODIC_INTERVAL;
 
-    Serial.println("[LOOP] Próxima revisión programada en 1 hora.");
+    Serial.println("[LOOP] Next check scheduled in 1 hour.");
   }
 
-  // Tu código bloqueante o blink
+  // Your blocking code or blink
   static unsigned long lastBlink = 0;
   if (millis() - lastBlink > BLINK_MS) {
     lastBlink = millis();

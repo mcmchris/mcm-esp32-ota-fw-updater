@@ -6,7 +6,7 @@ extern "C" {
 #include "esp_log.h"
 }
 
-// Buffer global compartido
+// Global Shared Buffer
 static uint8_t _global_buf[4096];
 
 // ==========================================================
@@ -16,11 +16,11 @@ MCM_GitHub_OTA::MCM_GitHub_OTA(bool enableEthernet, bool enableWiFi)
     : _useEthernet(enableEthernet), 
       _useWiFi(enableWiFi)
 {
-    // YA NO CREAMOS NADA AQUÍ. AHORRAMOS 36KB DE RAM AL INICIO.
+    
 }
 
 MCM_GitHub_OTA::~MCM_GitHub_OTA() {
-    // Nada que borrar
+    
 }
 
 // ==========================================================
@@ -85,7 +85,7 @@ bool MCM_GitHub_OTA::canFit(size_t content_len) {
 }
 
 // ==========================================================
-// Selección de Red
+// Network Selection
 // ==========================================================
 MCM_NetType MCM_GitHub_OTA::pickNetFast() {
     if (_useEthernet) {
@@ -104,7 +104,7 @@ MCM_NetType MCM_GitHub_OTA::pickNetFast() {
 }
 
 // ==========================================================
-// Lógica Principal (OPTIMIZADA RAM)
+// Main Logic (RAM Optimized)
 // ==========================================================
 void MCM_GitHub_OTA::checkForUpdate() {
     MCM_NetType net = pickNetFast();
@@ -116,35 +116,35 @@ void MCM_GitHub_OTA::checkForUpdate() {
     const char* netName = (net == MCM_NET_ETH) ? "ETH" : "WIFI";
     
     // ============================================================
-    // GESTIÓN DE MEMORIA DINÁMICA
-    // Creamos el cliente SSL (18KB) AHORA MISMO, no antes.
+    // DYNAMIC MEMORY MANAGEMENT
+    // Create the SSL client (18KB) RIGHT NOW, not before.
     // ============================================================
     SSLClient* clientPtr = nullptr;
     
     if (net == MCM_NET_ETH) {
-        // Envolver Ethernet
+        // Wrap Ethernet
         clientPtr = new SSLClient(_eth_client, TAs, TAs_NUM, -1, 1, 18200, SSLClient::SSL_NONE);
     } else {
-        // Envolver WiFi
+        // Wrap WiFi
         clientPtr = new SSLClient(_wifi_client, TAs, TAs_NUM, -1, 1, 18200, SSLClient::SSL_NONE);
     }
 
-    // Verificamos que se haya podido crear (que haya RAM)
+    // Check if creation was successful (enough RAM)
     if (!clientPtr) {
         Serial.println("[MCM-OTA] OOM: Could not allocate SSL Buffer!");
         return;
     }
 
-    // --- Paso 1: Obtener JSON ---
+    // --- Step 1: Get JSON ---
     String body;
     Serial.printf("[MCM-OTA-%s] Checking for updates...\n", netName);
     if (!getJson(clientPtr, latestReleaseUrl(), body, netName)) {
         Serial.println("[MCM-OTA] Failed to fetch release JSON");
-        delete clientPtr; // ¡IMPORTANTE! Liberar memoria
+        delete clientPtr; // IMPORTANT! Free memory
         return;
     }
 
-    // --- Paso 2: Parsear JSON ---
+    // --- Step 2: Parse JSON ---
     JsonDocument doc;
     auto err = deserializeJson(doc, body);
     if (err) {
@@ -167,7 +167,7 @@ void MCM_GitHub_OTA::checkForUpdate() {
         return;
     }
 
-    // --- Paso 3: Encontrar el Asset (.bin) ---
+    // --- Step 3: Find the Asset (.bin) ---
     int assetId = -1;
     size_t assetSize = 0;
     String browserUrl = "";
@@ -197,7 +197,7 @@ void MCM_GitHub_OTA::checkForUpdate() {
     String assetUrl = String("https://api.github.com/repos/") + _owner + "/" + _repo + "/releases/assets/" + String(assetId);
     Serial.printf("[MCM-OTA] Downloading update from: %s\n", assetUrl.c_str());
 
-    // --- Paso 4: Descargar y Flashear ---
+    // --- Step 4: Download and Flash ---
     bool useAuth = (_token.length() > 0);
     bool success = performUpdate(clientPtr, assetUrl, useAuth, netName);
 
@@ -207,14 +207,14 @@ void MCM_GitHub_OTA::checkForUpdate() {
     }
     
     // ============================================================
-    // LIMPIEZA FINAL
-    // Liberamos los 18KB de RAM para que el resto del programa respire
+    // FINAL CLEANUP
+    // Free the 18KB of RAM so the rest of the program can breathe
     // ============================================================
     delete clientPtr;
 }
 
 // ==========================================================
-// Funciones de Red (Sin cambios, ya usan punteros)
+// Network Functions (Unchanged, already use pointers)
 // ==========================================================
 
 bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyOut, const char* netName) {
