@@ -37,7 +37,7 @@ public:
 
     void begin(const char* owner, const char* repo, const char* currentVersion, const char* token = "");
     void checkForUpdate();
-
+    bool isUpdated();
 private:
     String _owner;
     String _repo;
@@ -46,7 +46,8 @@ private:
 
     bool _useEthernet;
     bool _useWiFi;
-
+    bool _isUpToDate = true; // Default to true until checked
+    
     // Light clients
     EthernetClient _eth_client;
     WiFiClient     _wifi_client;

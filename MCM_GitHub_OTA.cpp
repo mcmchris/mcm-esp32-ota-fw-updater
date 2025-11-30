@@ -16,7 +16,7 @@ MCM_GitHub_OTA::MCM_GitHub_OTA(bool enableEthernet, bool enableWiFi)
     : _useEthernet(enableEthernet), 
       _useWiFi(enableWiFi)
 {
-    
+    _isUpToDate = true; // Assume true initially
 }
 
 MCM_GitHub_OTA::~MCM_GitHub_OTA() {
@@ -82,6 +82,10 @@ void MCM_GitHub_OTA::confirmOtaIfPending() {
 bool MCM_GitHub_OTA::canFit(size_t content_len) {
     const esp_partition_t* upd = esp_ota_get_next_update_partition(NULL);
     return upd && content_len > 0 && content_len <= upd->size;
+}
+
+bool MCM_GitHub_OTA::isUpdated() {
+    return _isUpToDate;
 }
 
 // ==========================================================
@@ -164,9 +168,13 @@ void MCM_GitHub_OTA::checkForUpdate() {
 
     Serial.printf("[MCM-OTA] Local: %s, Remote: %s\n", _currentVersion.c_str(), remoteVersion.c_str());
     if (remoteVersion == _currentVersion) {
+        _isUpToDate = true;
         Serial.println("[MCM-OTA] Device is up to date.");
         delete clientPtr;
         return;
+    }else{
+        _isUpToDate = false;
+        Serial.println("[MCM-OTA] Update available!");
     }
 
     // --- Step 3: Find the Asset (.bin) ---
