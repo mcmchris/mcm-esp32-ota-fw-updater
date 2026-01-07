@@ -159,7 +159,7 @@ if (ENABLE_WIFI) {
   // 3. CONFIGURE OTA
   // ---------------------------------------------------------
   ota.begin(GH_OWNER, GH_REPO, FW_VERSION, GH_TOKEN);
-
+  ota.setSSLDebug(SSLClient::SSL_WARN);
   // ============================================================
   // TIME LOGIC: Schedule the FIRST execution
   // ============================================================
