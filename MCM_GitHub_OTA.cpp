@@ -34,6 +34,10 @@ void MCM_GitHub_OTA::begin(const char* owner, const char* repo, const char* curr
     confirmOtaIfPending();
 }
 
+void MCM_GitHub_OTA::setSSLDebug(SSLClient::DebugLevel level) {
+    _sslDebugLevel = level;
+}
+
 // ==========================================================
 // Helpers
 // ==========================================================
