@@ -36,6 +36,9 @@ public:
     ~MCM_GitHub_OTA(); 
 
     void begin(const char* owner, const char* repo, const char* currentVersion, const char* token = "");
+
+    void setSSLDebug(SSLClient::DebugLevel level);
+
     void checkForUpdate();
     bool isUpdated();
 private:
@@ -48,6 +51,8 @@ private:
     bool _useWiFi;
     bool _isUpToDate = true; // Default to true until checked
     
+    SSLClient::DebugLevel _sslDebugLevel = SSLClient::SSL_NONE;
+
     // Light clients
     EthernetClient _eth_client;
     WiFiClient     _wifi_client;
