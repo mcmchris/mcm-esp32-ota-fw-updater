@@ -37,11 +37,9 @@ jobs:
           
           # Ejecutamos el script contra los dominios críticos:
           # 1. api.github.com -> Para la API REST
-          # 2. raw.githubusercontent.com -> Por si acaso usas raw files
           
           python3 pycert_bearssl.py download \
             api.github.com \
-            raw.githubusercontent.com \
             --output MCM_CertStore.h
             
           # Movemos el archivo generado a la ubicación correcta (ajusta si tu .h está en una carpeta 'src' o 'include')
