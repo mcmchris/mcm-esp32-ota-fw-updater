@@ -23,7 +23,7 @@ jobs:
 
       - name: Instalar dependencias del script
         run: |
-          pip install click
+          pip install click pyopenssl
 
       - name: Descargar herramienta (pycert_bearssl + dependencias)
         run: |
