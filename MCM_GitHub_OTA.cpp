@@ -16,12 +16,10 @@ MCM_GitHub_OTA::MCM_GitHub_OTA(bool enableEthernet, bool enableWiFi)
     : _useEthernet(enableEthernet), 
       _useWiFi(enableWiFi)
 {
-    _isUpToDate = true; // Assume true initially
+    _isUpToDate = true; 
 }
 
-MCM_GitHub_OTA::~MCM_GitHub_OTA() {
-    
-}
+MCM_GitHub_OTA::~MCM_GitHub_OTA() { }
 
 // ==========================================================
 // Setup
@@ -39,7 +37,187 @@ void MCM_GitHub_OTA::setSSLDebug(SSLClient::DebugLevel level) {
 }
 
 // ==========================================================
-// Helpers
+// Main Logic (Optimized with Late Fallback)
+// ==========================================================
+void MCM_GitHub_OTA::checkForUpdate() {
+    MCM_NetType net = pickNetFast();
+    
+    if (net == MCM_NET_NONE) return;
+
+    const char* netName = (net == MCM_NET_ETH) ? "ETH" : "WIFI";
+    
+    SSLClient* clientPtr = nullptr;
+    String body;
+    bool fetchSuccess = false;
+    
+    // Bandera para saber si estamos operando con seguridad o no.
+    // Esto es crucial para decidir si activamos el fallback tardío.
+    bool isSecureSession = true; 
+
+    // ------------------------------------------------------------
+    // INTENTO 1: MODO SEGURO (Con Trust Anchors)
+    // ------------------------------------------------------------
+    Serial.printf("[MCM-OTA] Attempting SECURE connection via %s...\n", netName);
+    
+    if (net == MCM_NET_ETH) {
+        clientPtr = new SSLClient(_eth_client, TAs, TAs_NUM, -1, 1, 18200, _sslDebugLevel);
+    } else {
+        clientPtr = new SSLClient(_wifi_client, TAs, TAs_NUM, -1, 1, 18200, _sslDebugLevel);
+    }
+
+    if (clientPtr) {
+        if (getJson(clientPtr, latestReleaseUrl(), body, netName)) {
+            fetchSuccess = true;
+        } else {
+            Serial.println("[MCM-OTA] Secure connection failed (Possible Cert Issue).");
+            delete clientPtr; 
+            clientPtr = nullptr;
+        }
+    } else {
+        Serial.println("[MCM-OTA] OOM: Could not allocate SSL Buffer (Secure)!");
+        return;
+    }
+
+    // ------------------------------------------------------------
+    // INTENTO 2: PARACAÍDAS TEMPRANO (Si falló el JSON)
+    // ------------------------------------------------------------
+    if (!fetchSuccess) {
+        Serial.println("[MCM-OTA] !!! ACTIVATING INSECURE FALLBACK (JSON FETCH) !!!");
+        delay(500); 
+
+        // Marcamos que ya NO es seguro
+        isSecureSession = false;
+
+        if (net == MCM_NET_ETH) {
+            clientPtr = new SSLClient(_eth_client, TAs, 0, -1, 1, 18200, _sslDebugLevel);
+        } else {
+            clientPtr = new SSLClient(_wifi_client, TAs, 0, -1, 1, 18200, _sslDebugLevel);
+        }
+
+        if (clientPtr) {
+            clientPtr->setInsecure(); // <--- Método clave de tu librería modificada
+
+            Serial.printf("[MCM-OTA-%s] Retrying connection INSECURELY...\n", netName);
+            if (getJson(clientPtr, latestReleaseUrl(), body, netName)) {
+                Serial.println("[MCM-OTA] Insecure connection successful.");
+                fetchSuccess = true;
+            } else {
+                Serial.println("[MCM-OTA] Insecure connection also failed. Aborting.");
+                delete clientPtr;
+                return;
+            }
+        } else {
+            Serial.println("[MCM-OTA] OOM: Could not allocate SSL Buffer (Insecure)!");
+            return;
+        }
+    }
+
+    // ------------------------------------------------------------
+    // PROCESAMIENTO COMÚN
+    // ------------------------------------------------------------
+    JsonDocument doc;
+    auto err = deserializeJson(doc, body);
+    if (err) {
+        Serial.printf("[MCM-OTA] JSON Error: %s\n", err.c_str());
+        delete clientPtr;
+        return;
+    }
+
+    String remoteVersion = doc["tag_name"] | "";
+    if (remoteVersion.length() == 0) {
+        Serial.println("[MCM-OTA] No tag_name found");
+        delete clientPtr;
+        return;
+    }
+
+    Serial.printf("[MCM-OTA] Local: %s, Remote: %s\n", _currentVersion.c_str(), remoteVersion.c_str());
+    if (remoteVersion == _currentVersion) {
+        _isUpToDate = true;
+        Serial.println("[MCM-OTA] Device is up to date.");
+        delete clientPtr;
+        return;
+    } else {
+        _isUpToDate = false;
+        Serial.println("[MCM-OTA] Update available!");
+    }
+
+    // Buscar asset .bin
+    int assetId = -1;
+    size_t assetSize = 0;
+    String browserUrl = "";
+    
+    for (JsonObject a : doc["assets"].as<JsonArray>()) {
+        String name = a["name"] | "";
+        if (name.endsWith(".bin")) {
+            assetId = (int)a["id"];
+            assetSize = (size_t)(a["size"] | 0);
+            browserUrl = a["browser_download_url"] | "";
+            break;
+        }
+    }
+
+    if (assetId < 0) {
+        Serial.println("[MCM-OTA] No .bin asset found in release.");
+        delete clientPtr;
+        return;
+    }
+
+    if (!canFit(assetSize)) {
+        Serial.printf("[MCM-OTA] Update image too big (%u bytes)\n", (unsigned)assetSize);
+        delete clientPtr;
+        return;
+    }
+
+    String assetUrl = String("https://api.github.com/repos/") + _owner + "/" + _repo + "/releases/assets/" + String(assetId);
+    Serial.printf("[MCM-OTA] Downloading update from: %s\n", assetUrl.c_str());
+
+    bool useAuth = (_token.length() > 0);
+    
+    // --- DESCARGA (INTENTO PRINCIPAL) ---
+    bool success = performUpdate(clientPtr, assetUrl, useAuth, netName);
+
+    // ------------------------------------------------------------
+    // FALLBACK TARDÍO (LATE FALLBACK) - CORRECCIÓN CLAVE
+    // Si la descarga falló Y todavía estamos en modo seguro,
+    // significa que el certificado del API estaba bien, pero el del CDN falló.
+    // ------------------------------------------------------------
+    if (!success && isSecureSession) {
+        Serial.println("[MCM-OTA] !!! DOWNLOAD FAILED SECURELY (Likely CDN Cert Issue) !!!");
+        Serial.println("[MCM-OTA] !!! ACTIVATING INSECURE FALLBACK (DOWNLOAD PHASE) !!!");
+        
+        // 1. Matamos al cliente seguro
+        delete clientPtr;
+        clientPtr = nullptr;
+        delay(500);
+
+        // 2. Nacemos como cliente inseguro
+        if (net == MCM_NET_ETH) {
+            clientPtr = new SSLClient(_eth_client, TAs, 0, -1, 1, 18200, _sslDebugLevel);
+        } else {
+            clientPtr = new SSLClient(_wifi_client, TAs, 0, -1, 1, 18200, _sslDebugLevel);
+        }
+
+        if (clientPtr) {
+            clientPtr->setInsecure(); // Desactivar validación
+            
+            Serial.println("[MCM-OTA] Retrying download INSECURELY...");
+            // 3. Reintentamos solo la descarga (ya tenemos la URL)
+            success = performUpdate(clientPtr, assetUrl, useAuth, netName);
+        }
+    }
+
+    // Último recurso: browser_download_url (sin Auth header)
+    if (!success && !useAuth && browserUrl.length() > 0) {
+        Serial.println("[MCM-OTA] Retrying via browser_download_url...");
+        if(clientPtr) clientPtr->stop(); 
+        performUpdate(clientPtr, browserUrl, false, netName);
+    }
+    
+    delete clientPtr;
+}
+
+// ==========================================================
+// Helpers (Sin cambios)
 // ==========================================================
 String MCM_GitHub_OTA::ua() { return String("esp32-ota/") + _currentVersion; }
 
@@ -92,187 +270,17 @@ bool MCM_GitHub_OTA::isUpdated() {
     return _isUpToDate;
 }
 
-// ==========================================================
-// Network Selection
-// ==========================================================
 MCM_NetType MCM_GitHub_OTA::pickNetFast() {
     if (_useEthernet) {
         if (Ethernet.linkStatus() == LinkON) {
-             if (Ethernet.localIP() != IPAddress(0,0,0,0)) {
-                 return MCM_NET_ETH;
-             }
+             if (Ethernet.localIP() != IPAddress(0,0,0,0)) return MCM_NET_ETH;
         }
     }
     if (_useWiFi) {
-        if (WiFi.status() == WL_CONNECTED) {
-            return MCM_NET_WIFI;
-        }
+        if (WiFi.status() == WL_CONNECTED) return MCM_NET_WIFI;
     }
     return MCM_NET_NONE;
 }
-
-// ==========================================================
-// Main Logic (RAM Optimized)
-// ==========================================================
-void MCM_GitHub_OTA::checkForUpdate() {
-    MCM_NetType net = pickNetFast();
-    
-    if (net == MCM_NET_NONE) {
-        return;
-    }
-
-    const char* netName = (net == MCM_NET_ETH) ? "ETH" : "WIFI";
-    
-    // ============================================================
-    // DYNAMIC MEMORY MANAGEMENT
-    // Create the SSL client (18KB) RIGHT NOW, not before.
-    // ============================================================
-    SSLClient* clientPtr = nullptr;
-    String body;
-    bool fetchSuccess = false;
-
-    // ------------------------------------------------------------
-    // INTENTO 1: MODO SEGURO (Con Trust Anchors)
-    // ------------------------------------------------------------
-    Serial.printf("[MCM-OTA] Attempting SECURE connection via %s...\n", netName);
-    
-    if (net == MCM_NET_ETH) {
-        clientPtr = new SSLClient(_eth_client, TAs, TAs_NUM, -1, 1, 18200, _sslDebugLevel);
-    } else {
-        clientPtr = new SSLClient(_wifi_client, TAs, TAs_NUM, -1, 1, 18200, _sslDebugLevel);
-    }
-
-    if (clientPtr) {
-        // Intentamos obtener el JSON de forma segura
-        if (getJson(clientPtr, latestReleaseUrl(), body, netName)) {
-            fetchSuccess = true;
-        } else {
-            Serial.println("[MCM-OTA] Secure connection failed (Possible Cert Issue).");
-            // Importante: Borramos el cliente fallido para liberar RAM antes del intento 2
-            delete clientPtr; 
-            clientPtr = nullptr;
-        }
-    } else {
-        Serial.println("[MCM-OTA] OOM: Could not allocate SSL Buffer (Secure)!");
-        return;
-    }
-
-    // ------------------------------------------------------------
-    // INTENTO 2: PARACAÍDAS DE EMERGENCIA (Modo Inseguro)
-    // ------------------------------------------------------------
-    if (!fetchSuccess) {
-        Serial.println("[MCM-OTA] !!! ACTIVATING INSECURE FALLBACK (EMERGENCY MODE) !!!");
-        delay(500); // Dar un respiro al stack TCP
-
-        // Creamos cliente pasando '0' como número de TAs para evitar validación interna
-        if (net == MCM_NET_ETH) {
-            clientPtr = new SSLClient(_eth_client, TAs, 0, -1, 1, 18200, _sslDebugLevel);
-        } else {
-            clientPtr = new SSLClient(_wifi_client, TAs, 0, -1, 1, 18200, _sslDebugLevel);
-        }
-
-        if (clientPtr) {
-            // La clave mágica: Saltarse la validación X.509
-            clientPtr->setInsecure(); 
-
-            Serial.printf("[MCM-OTA-%s] Retrying connection INSECURELY...\n", netName);
-            if (getJson(clientPtr, latestReleaseUrl(), body, netName)) {
-                Serial.println("[MCM-OTA] Insecure connection successful.");
-                fetchSuccess = true;
-            } else {
-                Serial.println("[MCM-OTA] Insecure connection also failed. Aborting.");
-                delete clientPtr;
-                return;
-            }
-        } else {
-            Serial.println("[MCM-OTA] OOM: Could not allocate SSL Buffer (Insecure)!");
-            return;
-        }
-    }
-
-    // ------------------------------------------------------------
-    // PROCESAMIENTO COMÚN (Si llegamos aquí, tenemos conexión y JSON)
-    // ------------------------------------------------------------
-    
-    // --- Step 2: Parse JSON ---
-    JsonDocument doc;
-    auto err = deserializeJson(doc, body);
-    if (err) {
-        Serial.printf("[MCM-OTA] JSON Error: %s\n", err.c_str());
-        delete clientPtr;
-        return;
-    }
-
-    String remoteVersion = doc["tag_name"] | "";
-    if (remoteVersion.length() == 0) {
-        Serial.println("[MCM-OTA] No tag_name found");
-        delete clientPtr;
-        return;
-    }
-
-    Serial.printf("[MCM-OTA] Local: %s, Remote: %s\n", _currentVersion.c_str(), remoteVersion.c_str());
-    if (remoteVersion == _currentVersion) {
-        _isUpToDate = true;
-        Serial.println("[MCM-OTA] Device is up to date.");
-        delete clientPtr;
-        return;
-    } else {
-        _isUpToDate = false;
-        Serial.println("[MCM-OTA] Update available!");
-    }
-
-    // --- Step 3: Find the Asset (.bin) ---
-    int assetId = -1;
-    size_t assetSize = 0;
-    String browserUrl = "";
-    
-    for (JsonObject a : doc["assets"].as<JsonArray>()) {
-        String name = a["name"] | "";
-        if (name.endsWith(".bin")) {
-            assetId = (int)a["id"];
-            assetSize = (size_t)(a["size"] | 0);
-            browserUrl = a["browser_download_url"] | "";
-            break;
-        }
-    }
-
-    if (assetId < 0) {
-        Serial.println("[MCM-OTA] No .bin asset found in release.");
-        delete clientPtr;
-        return;
-    }
-
-    if (!canFit(assetSize)) {
-        Serial.printf("[MCM-OTA] Update image too big (%u bytes)\n", (unsigned)assetSize);
-        delete clientPtr;
-        return;
-    }
-
-    String assetUrl = String("https://api.github.com/repos/") + _owner + "/" + _repo + "/releases/assets/" + String(assetId);
-    Serial.printf("[MCM-OTA] Downloading update from: %s\n", assetUrl.c_str());
-
-    // --- Step 4: Download and Flash ---
-    // Usamos el 'clientPtr' que esté vivo (ya sea el seguro o el inseguro)
-    bool useAuth = (_token.length() > 0);
-    bool success = performUpdate(clientPtr, assetUrl, useAuth, netName);
-
-    if (!success && !useAuth && browserUrl.length() > 0) {
-        Serial.println("[MCM-OTA] Retrying via browser_download_url...");
-        // Reintentamos con el mismo cliente (ya configurado como seguro o inseguro)
-        clientPtr->stop(); 
-        performUpdate(clientPtr, browserUrl, false, netName);
-    }
-    
-    // ============================================================
-    // FINAL CLEANUP
-    // Free the 18KB of RAM so the rest of the program can breathe
-    // ============================================================
-    delete clientPtr;
-}
-
-// ==========================================================
-// Network Functions (Unchanged, already use pointers)
-// ==========================================================
 
 bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyOut, const char* netName) {
     String host = hostOf(url);
@@ -401,7 +409,6 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bo
             }
         }
 
-        size_t wroteNow = 0;
         bool ok = false;
         if (h.chunked) {
             ok = pipeChunkedToUpdate(client);
@@ -409,8 +416,7 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bo
             long long remaining = h.contentLen;
             size_t totalBefore = wroteTotal;
             ok = pipeFixedToUpdate(client, remaining, haveExpected ? expectedTotal : 0, wroteTotal, wroteTotal);
-            wroteNow = wroteTotal - totalBefore;
-
+            
             if (!ok) {
                 client->stop();
                 if (haveExpected && wroteTotal < expectedTotal) {
@@ -458,7 +464,7 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bo
 
 
 // ==========================================================
-// Internal Pipeline Utilities
+// Utilities
 // ==========================================================
 
 bool MCM_GitHub_OTA::readLine(SSLClient* c, String& out, unsigned long timeoutMs) {
