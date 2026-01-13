@@ -1,0 +1,28 @@
+name: Monitor de Certificados OTA
+
+on:
+  schedule:
+    - cron: '0 8 * * *' # Ejecutar todos los días a las 8 AM
+  workflow_dispatch:
+
+jobs:
+  check-certs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar Cadena de Certificados
+        run: |
+          # 1. Obtener el Issuer del certificado actual de GitHub
+          ISSUER=$(echo | openssl s_client -servername api.github.com -connect api.github.com:443 2>/dev/null | openssl x509 -noout -issuer)
+          
+          echo "Emisor actual de GitHub: $ISSUER"
+          
+          # 2. Verificar si es uno de los conocidos (DigiCert o Sectigo)
+          # Ajusta estos strings según tus TAs actuales
+          if [[ "$ISSUER" == *"DigiCert"* ]] || [[ "$ISSUER" == *"Sectigo"* ]] || [[ "$ISSUER" == *"USERTrust"* ]]; then
+            echo "Certificado OK (Coincide con TAs conocidos)."
+          else
+            echo "::error::¡ALERTA! El certificado de GitHub ha cambiado a: $ISSUER"
+            echo "Es posible que los dispositivos IoT dejen de conectar."
+            # Aquí podrías mandar un email o notificación de Slack
+            exit 1
+          fi
