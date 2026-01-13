@@ -40,7 +40,7 @@ jobs:
           
           python3 pycert_bearssl.py download \
             api.github.com \
-            github.com \
+            s3.amazonaws.com \
             codeload.github.com \
             --output MCM_CertStore.h
           
