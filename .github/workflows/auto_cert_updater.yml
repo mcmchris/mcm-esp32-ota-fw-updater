@@ -26,60 +26,53 @@ jobs:
           sudo apt-get update
           pip install click pyopenssl certifi
 
-      - name: Descargar herramientas
+      - name: Descargar herramientas BearSSL
         run: |
           wget https://raw.githubusercontent.com/OPEnSLab-OSU/SSLClient/master/tools/pycert_bearssl/pycert_bearssl.py
           wget https://raw.githubusercontent.com/OPEnSLab-OSU/SSLClient/master/tools/pycert_bearssl/cert_util.py
 
-      - name: Generar nuevos certificados (MCM_CertStore.h)
+      - name: Descargar y Preparar Certificados Raíz
         run: |
-          echo "Descargando colección maestra de certificados..."
+          echo "Descargando las 3 Raíces exactas que usa el Web Tool..."
 
-          # 1. AAA Certificate Services (Legacy para CDN de GitHub)
-          wget -O aaa_services.crt "https://crt.sh/?d=331986"
+          # 1. USERTrust ECC Certification Authority (Para api.github.com)
+          # ID crt.sh: 2841410
+          wget -O usertrust_ecc.der "https://crt.sh/?d=2841410"
 
-          # 2. Starfield Class 2 (Legacy para AWS S3)
-          wget -O starfield_class2.crt "https://crt.sh/?d=1063596"
+          # 2. AAA Certificate Services (Para CDN GitHub / Sectigo Legacy)
+          # ID crt.sh: 331986
+          wget -O aaa_services.der "https://crt.sh/?d=331986"
 
-          # 3. USERTrust ECC Certification Authority (GitHub API Actual)
-          wget -O usertrust_ecc.crt "https://crt.sh/?d=2841410"
+          # 3. Starfield Class 2 Certification Authority (Para AWS S3 Legacy)
+          # ID crt.sh: 1063596
+          wget -O starfield_class2.der "https://crt.sh/?d=1063596"
 
-          # 4. DigiCert Global Root CA (Estándar de la industria / GitHub Backup)
-          wget -O digicert_global.crt "https://crt.sh/?d=853"
-
-          echo "Convirtiendo certificados a header C++..."
+          echo "Convirtiendo de Binario (DER) a Texto (PEM)..."
+          # Este paso es CRUCIAL. El script de Python falla si le das DER.
+          # Debemos convertirlos a PEM usando OpenSSL.
           
-          # CAMBIO CLAVE: Usamos 'convert' en lugar de 'download'.
-          # Esto procesa los archivos locales sin intentar conectarse a internet.
+          openssl x509 -inform DER -in usertrust_ecc.der -out usertrust_ecc.pem
+          openssl x509 -inform DER -in aaa_services.der -out aaa_services.pem
+          openssl x509 -inform DER -in starfield_class2.der -out starfield_class2.pem
+
+      - name: Generar MCM_CertStore.h
+        run: |
+          echo "Generando archivo de cabecera con 3 TAs..."
+          
+          # Usamos 'convert' para procesar los archivos locales ya preparados.
+          # Esto garantiza el resultado exacto sin depender de la red o el OS.
           
           python3 pycert_bearssl.py convert \
-            *.crt \
+            usertrust_ecc.pem \
+            aaa_services.pem \
+            starfield_class2.pem \
             --output MCM_CertStore.h
             
           # LIMPIEZA
-          rm *.crt *.py
+          rm *.der *.pem *.py
           rm -rf __pycache__
 
       - name: Verificar cambios
         id: verify_diff
         run: |
           git diff MCM_CertStore.h
-
-      - name: Crear Pull Request con los nuevos certificados
-        uses: peter-evans/create-pull-request@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "security: Actualización de Certificados (GitHub + Legacy CDN)"
-          title: "🔐 Actualización de Certificados SSL (MCM_CertStore.h)"
-          body: |
-            Actualización de Trust Anchors generada automáticamente.
-            
-            **Contenido:**
-            1. `api.github.com` (Escaneado en vivo).
-            2. `AAA Certificate Services` (Inyectado para compatibilidad CDN).
-            3. `Starfield Class 2` (Inyectado para compatibilidad AWS S3 Legacy).
-          branch: update-ssl-certs
-          base: main
-          delete-branch: true
-          add-paths: |
-            MCM_CertStore.h
