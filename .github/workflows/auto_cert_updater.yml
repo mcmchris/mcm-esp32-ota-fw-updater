@@ -73,3 +73,6 @@ jobs:
           branch: update-ssl-certs
           base: main
           delete-branch: true
+
+          add-paths: |
+            MCM_CertStore.h
