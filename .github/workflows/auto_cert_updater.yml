@@ -25,10 +25,11 @@ jobs:
         run: |
           pip install click
 
-      - name: Descargar herramienta pycert_bearssl
+      - name: Descargar herramienta (pycert_bearssl + dependencias)
         run: |
           # Descargamos el script oficial de la librería SSLClient
           wget https://raw.githubusercontent.com/OPEnSLab-OSU/SSLClient/master/tools/pycert_bearssl/pycert_bearssl.py
+          wget https://raw.githubusercontent.com/OPEnSLab-OSU/SSLClient/master/tools/pycert_bearssl/cert_util.py
 
       - name: Generar nuevos certificados (MCM_CertStore.h)
         run: |
