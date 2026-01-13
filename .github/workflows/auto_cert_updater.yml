@@ -34,21 +34,22 @@ jobs:
 
       - name: Generar nuevos certificados (MCM_CertStore.h)
         run: |
-          echo "Obteniendo certificados exactos..."
+          echo "Obteniendo certificados RAW desde crt.sh..."
 
-          # 1. Descargamos 'AAA Certificate Services' (Raíz Legacy de Comodo/Sectigo)
-          # Fuente: Repositorio oficial de Comodo/Sectigo vía crt.sh (ID 331986)
+          # 1. AAA Certificate Services (Legacy Sectigo)
+          # Descarga directa del archivo .crt (binary/PEM)
           wget -O aaa_services.crt "https://crt.sh/?d=331986"
 
-          # 2. Descargamos 'Starfield Class 2' (Raíz Legacy de AWS/GoDaddy)
-          # Fuente: Repositorio oficial de GoDaddy
-          wget -O starfield_class2.crt "https://certs.godaddy.com/repository/sf_class2_root.crt"
+          # 2. Starfield Class 2 Certification Authority (Legacy AWS)
+          # Usamos crt.sh ID 1063596 que corresponde al Root original de Starfield Class 2
+          wget -O starfield_class2.crt "https://crt.sh/?d=1063596"
 
           echo "Generando Trust Anchors combinados..."
           
-          # COMANDO MAGISTRAL:
-          # - api.github.com: Lo escaneamos en vivo para tener el ECC actual.
-          # - *.crt: Le pasamos los archivos locales para forzar los Legacy.
+          # El script procesará:
+          # - api.github.com (En vivo, USERTrust ECC)
+          # - aaa_services.crt (Local, AAA)
+          # - starfield_class2.crt (Local, Starfield)
           
           python3 pycert_bearssl.py download \
             api.github.com \
@@ -59,35 +60,27 @@ jobs:
           # LIMPIEZA
           rm *.crt *.py
           rm -rf __pycache__
-            
-          # Movemos el archivo generado a la ubicación correcta (ajusta si tu .h está en una carpeta 'src' o 'include')
-          # mv MCM_CertStore.h src/MCM_CertStore.h  <-- DESCOMENTAR Y AJUSTAR SI ES NECESARIO
 
       - name: Verificar cambios
         id: verify_diff
         run: |
           git diff MCM_CertStore.h
-          # Si no hay cambios, el paso siguiente no creará PR
 
       - name: Crear Pull Request con los nuevos certificados
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "security: Actualización automática de Certificados SSL"
+          commit-message: "security: Actualización de Certificados (GitHub + Legacy CDN)"
           title: "🔐 Actualización de Certificados SSL (MCM_CertStore.h)"
           body: |
-            Este PR fue generado automáticamente por GitHub Actions.
+            Actualización de Trust Anchors generada automáticamente.
             
-            Se han detectado cambios en la cadena de certificación de GitHub.
-            El archivo `MCM_CertStore.h` ha sido regenerado con los Trust Anchors vigentes hoy.
-            
-            **Pasos para el humano:**
-            1. Revisa los cambios en el archivo.
-            2. Si todo parece correcto (ves DigiCert, Sectigo, etc.), haz Merge.
-            3. El sistema compilará el nuevo firmware automáticamente (si tienes CI de compilación).
+            **Contenido:**
+            1. `api.github.com` (Escaneado en vivo).
+            2. `AAA Certificate Services` (Inyectado para compatibilidad CDN).
+            3. `Starfield Class 2` (Inyectado para compatibilidad AWS S3 Legacy).
           branch: update-ssl-certs
           base: main
           delete-branch: true
-
           add-paths: |
             MCM_CertStore.h
