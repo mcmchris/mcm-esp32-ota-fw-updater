@@ -2,27 +2,56 @@ name: Monitor de Certificados OTA
 
 on:
   schedule:
-    - cron: '0 8 * * *' # Ejecutar todos los días a las 8 AM
-  workflow_dispatch:
+    - cron: '0 8 * * *' # Ejecutar todos los días a las 8 AM UTC
+  workflow_dispatch:    # Botón manual para probarlo ya mismo
 
 jobs:
   check-certs:
     runs-on: ubuntu-latest
     steps:
-      - name: Verificar Cadena de Certificados
+      - name: Verificar Cadena de Certificados (API y CDN)
         run: |
-          # 1. Obtener el Issuer del certificado actual de GitHub
-          ISSUER=$(echo | openssl s_client -servername api.github.com -connect api.github.com:443 2>/dev/null | openssl x509 -noout -issuer)
+          # Función para verificar un dominio
+          check_domain() {
+            local domain=$1
+            echo "------------------------------------------------"
+            echo "🔍 Verificando dominio: $domain"
+            
+            # Obtener el Issuer (quien firma el certificado)
+            # Usamos -connect con timeout para evitar bloqueos
+            local issuer=$(echo | openssl s_client -servername $domain -connect $domain:443 2>/dev/null | openssl x509 -noout -issuer)
+            
+            if [ -z "$issuer" ]; then
+              echo "::error::❌ Error de conexión o SSL handshake fallido con $domain"
+              return 1
+            fi
+            
+            echo "   📄 Emisor detectado: $issuer"
+            
+            # LISTA BLANCA DE EMISORES CONOCIDOS
+            # DigiCert: Usado tradicionalmente por GitHub
+            # Sectigo / USERTrust: Usado actualmente en la API
+            # Entrust / Starfield: A veces usado en CDNs
+            
+            if [[ "$issuer" == *"DigiCert"* ]] || \
+               [[ "$issuer" == *"Sectigo"* ]] || \
+               [[ "$issuer" == *"USERTrust"* ]] || \
+               [[ "$issuer" == *"Starfield"* ]]; then
+               
+              echo "   ✅ Certificado OK (Confianza válida)."
+            else
+              echo "::error::🚨 ¡ALERTA! El certificado de $domain ha cambiado a un emisor desconocido!"
+              echo "   Nuevo Emisor: $issuer"
+              return 1
+            fi
+          }
+
+          # 1. Verificar la API (Controla la consulta de versión JSON)
+          check_domain "api.github.com" || exit 1
           
-          echo "Emisor actual de GitHub: $ISSUER"
+          # 2. Verificar el CDN (Controla la descarga del .bin)
+          # Esto es vital porque aquí es donde suelen usar certificados viejos o rotar a Azure/AWS
+          check_domain "raw.githubusercontent.com" || exit 1
           
-          # 2. Verificar si es uno de los conocidos (DigiCert o Sectigo)
-          # Ajusta estos strings según tus TAs actuales
-          if [[ "$ISSUER" == *"DigiCert"* ]] || [[ "$ISSUER" == *"Sectigo"* ]] || [[ "$ISSUER" == *"USERTrust"* ]]; then
-            echo "Certificado OK (Coincide con TAs conocidos)."
-          else
-            echo "::error::¡ALERTA! El certificado de GitHub ha cambiado a: $ISSUER"
-            echo "Es posible que los dispositivos IoT dejen de conectar."
-            # Aquí podrías mandar un email o notificación de Slack
-            exit 1
-          fi
+          echo "------------------------------------------------"
+          echo "🎉 Todo parece en orden. Tus Trust Anchors deberían seguir funcionando."
