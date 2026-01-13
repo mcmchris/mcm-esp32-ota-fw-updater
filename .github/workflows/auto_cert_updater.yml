@@ -53,3 +53,35 @@ jobs:
           # LIMPIEZA
           rm pycert_bearssl.py cert_util.py
           rm -rf __pycache__
+            
+          # Movemos el archivo generado a la ubicación correcta (ajusta si tu .h está en una carpeta 'src' o 'include')
+          # mv MCM_CertStore.h src/MCM_CertStore.h  <-- DESCOMENTAR Y AJUSTAR SI ES NECESARIO
+
+      - name: Verificar cambios
+        id: verify_diff
+        run: |
+          git diff MCM_CertStore.h
+          # Si no hay cambios, el paso siguiente no creará PR
+
+      - name: Crear Pull Request con los nuevos certificados
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "security: Actualización automática de Certificados SSL"
+          title: "🔐 Actualización de Certificados SSL (MCM_CertStore.h)"
+          body: |
+            Este PR fue generado automáticamente por GitHub Actions.
+            
+            Se han detectado cambios en la cadena de certificación de GitHub.
+            El archivo `MCM_CertStore.h` ha sido regenerado con los Trust Anchors vigentes hoy.
+            
+            **Pasos para el humano:**
+            1. Revisa los cambios en el archivo.
+            2. Si todo parece correcto (ves DigiCert, Sectigo, etc.), haz Merge.
+            3. El sistema compilará el nuevo firmware automáticamente (si tienes CI de compilación).
+          branch: update-ssl-certs
+          base: main
+          delete-branch: true
+
+          add-paths: |
+            MCM_CertStore.h
