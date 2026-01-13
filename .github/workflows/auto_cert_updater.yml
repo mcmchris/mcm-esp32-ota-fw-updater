@@ -41,6 +41,9 @@ jobs:
           python3 pycert_bearssl.py download \
             api.github.com \
             --output MCM_CertStore.h
+          
+          rm pycert_bearssl.py cert_util.py
+          rm -rf __pycache__
             
           # Movemos el archivo generado a la ubicación correcta (ajusta si tu .h está en una carpeta 'src' o 'include')
           # mv MCM_CertStore.h src/MCM_CertStore.h  <-- DESCOMENTAR Y AJUSTAR SI ES NECESARIO
