@@ -31,37 +31,47 @@ jobs:
           wget https://raw.githubusercontent.com/OPEnSLab-OSU/SSLClient/master/tools/pycert_bearssl/pycert_bearssl.py
           wget https://raw.githubusercontent.com/OPEnSLab-OSU/SSLClient/master/tools/pycert_bearssl/cert_util.py
 
-      - name: Descargar y Preparar Certificados Raíz
+      - name: Descargar y Normalizar Certificados
         run: |
-          echo "Descargando las 3 Raíces exactas que usa el Web Tool..."
+          # Función para descargar y convertir a PEM sea cual sea el origen
+          normalize_cert() {
+              local filename=$1
+              local url=$2
+              echo "⬇️ Procesando $filename..."
+              
+              # 1. Descargar
+              wget -q -O temp.blob "$url"
+              
+              # 2. Intentar convertir (Lógica Inteligente)
+              # Primero probamos si ya es PEM (Texto estándar)
+              if openssl x509 -in temp.blob -out "$filename.pem"; then
+                  echo "   ✅ Detectado formato PEM nativo."
+              # Si falla, probamos si es DER (Binario) y lo convertimos
+              elif openssl x509 -inform DER -in temp.blob -out "$filename.pem"; then
+                  echo "   ✅ Detectado formato DER. Convertido a PEM."
+              else
+                  echo "   ❌ ERROR: No se pudo reconocer el formato del certificado."
+                  exit 1
+              fi
+              rm temp.blob
+          }
 
-          # 1. USERTrust ECC Certification Authority (Para api.github.com)
-          # ID crt.sh: 2841410
-          wget -O usertrust_ecc.der "https://crt.sh/?d=2841410"
+          echo "--- INICIANDO DESCARGA DE RAÍCES ---"
 
-          # 2. AAA Certificate Services (Para CDN GitHub / Sectigo Legacy)
-          # ID crt.sh: 331986
-          wget -O aaa_services.der "https://crt.sh/?d=331986"
+          # 1. USERTrust ECC Certification Authority (GitHub API) - ID 2841410
+          normalize_cert "usertrust_ecc" "https://crt.sh/?d=2841410"
 
-          # 3. Starfield Class 2 Certification Authority (Para AWS S3 Legacy)
-          # ID crt.sh: 1063596
-          wget -O starfield_class2.der "https://crt.sh/?d=1063596"
+          # 2. AAA Certificate Services (GitHub CDN Legacy) - ID 331986
+          normalize_cert "aaa_services" "https://crt.sh/?d=331986"
 
-          echo "Convirtiendo de Binario (DER) a Texto (PEM)..."
-          # Este paso es CRUCIAL. El script de Python falla si le das DER.
-          # Debemos convertirlos a PEM usando OpenSSL.
-          
-          openssl x509 -inform DER -in usertrust_ecc.der -out usertrust_ecc.pem
-          openssl x509 -inform DER -in aaa_services.der -out aaa_services.pem
-          openssl x509 -inform DER -in starfield_class2.der -out starfield_class2.pem
+          # 3. Starfield Class 2 Certification Authority (AWS S3 Legacy) - ID 1063596
+          normalize_cert "starfield_class2" "https://crt.sh/?d=1063596"
 
       - name: Generar MCM_CertStore.h
         run: |
-          echo "Generando archivo de cabecera con 3 TAs..."
+          echo "Generando archivo de cabecera C++..."
           
-          # Usamos 'convert' para procesar los archivos locales ya preparados.
-          # Esto garantiza el resultado exacto sin depender de la red o el OS.
-          
+          # Usamos 'convert' con los archivos .pem ya saneados
           python3 pycert_bearssl.py convert \
             usertrust_ecc.pem \
             aaa_services.pem \
@@ -69,7 +79,7 @@ jobs:
             --output MCM_CertStore.h
             
           # LIMPIEZA
-          rm *.der *.pem *.py
+          rm *.pem *.py
           rm -rf __pycache__
 
       - name: Verificar cambios
