@@ -21,38 +21,35 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Instalar dependencias del script
+      - name: Instalar dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates openssl
+
+      - name: Instalar dependencias de Python
         run: |
           pip install click pyopenssl certifi
 
-      - name: Descargar herramienta (pycert_bearssl + dependencias)
+      - name: Descargar herramientas
         run: |
-          # Descargamos el script oficial de la librería SSLClient
           wget https://raw.githubusercontent.com/OPEnSLab-OSU/SSLClient/master/tools/pycert_bearssl/pycert_bearssl.py
           wget https://raw.githubusercontent.com/OPEnSLab-OSU/SSLClient/master/tools/pycert_bearssl/cert_util.py
 
       - name: Generar nuevos certificados (MCM_CertStore.h)
         run: |
-          echo "Generando Trust Anchors para GitHub y AWS (S3)..."
+          echo "Generando Trust Anchors..."
           
-          # Ejecutamos el script contra los dominios críticos:
-          # 1. api.github.com -> Para la API REST
+          # ESTRATEGIA DE "DOMINIOS ANCLA":
+          # 1. api.github.com -> El real que usa GitHub hoy.
+          # 2. sectigo.com -> Forza la inclusión de 'USERTrust' y 'AAA' (Sectigo/Comodo).
+          # 3. aws.amazon.com -> Forza la inclusión de 'Starfield' (AWS), más estable que escanear s3.
           
           python3 pycert_bearssl.py download \
             api.github.com \
-            s3.amazonaws.com \
-            codeload.github.com \
+            sectigo.com \
+            aws.amazon.com \
             --output MCM_CertStore.h
-          
+            
+          # LIMPIEZA
           rm pycert_bearssl.py cert_util.py
           rm -rf __pycache__
-            
-          # Movemos el archivo generado a la ubicación correcta (ajusta si tu .h está en una carpeta 'src' o 'include')
-          # mv MCM_CertStore.h src/MCM_CertStore.h  <-- DESCOMENTAR Y AJUSTAR SI ES NECESARIO
-
-      - name: Verificar cambios
-        id: verify_diff
-        run: |
-          git diff MCM_CertStore.h
-          # Si no hay cambios, el paso siguiente no creará PR
-
