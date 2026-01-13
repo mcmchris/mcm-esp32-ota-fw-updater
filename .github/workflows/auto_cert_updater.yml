@@ -24,7 +24,6 @@ jobs:
       - name: Instalar dependencias
         run: |
           sudo apt-get update
-          sudo apt-get install -y ca-certificates openssl
           pip install click pyopenssl certifi
 
       - name: Descargar herramientas
@@ -34,27 +33,27 @@ jobs:
 
       - name: Generar nuevos certificados (MCM_CertStore.h)
         run: |
-          echo "Obteniendo certificados RAW desde crt.sh..."
+          echo "Descargando colección maestra de certificados..."
 
-          # 1. AAA Certificate Services (Legacy Sectigo)
-          # Descarga directa del archivo .crt (binary/PEM)
+          # 1. AAA Certificate Services (Legacy para CDN de GitHub)
           wget -O aaa_services.crt "https://crt.sh/?d=331986"
 
-          # 2. Starfield Class 2 Certification Authority (Legacy AWS)
-          # Usamos crt.sh ID 1063596 que corresponde al Root original de Starfield Class 2
+          # 2. Starfield Class 2 (Legacy para AWS S3)
           wget -O starfield_class2.crt "https://crt.sh/?d=1063596"
 
-          echo "Generando Trust Anchors combinados..."
+          # 3. USERTrust ECC Certification Authority (GitHub API Actual)
+          wget -O usertrust_ecc.crt "https://crt.sh/?d=2841410"
+
+          # 4. DigiCert Global Root CA (Estándar de la industria / GitHub Backup)
+          wget -O digicert_global.crt "https://crt.sh/?d=853"
+
+          echo "Convirtiendo certificados a header C++..."
           
-          # El script procesará:
-          # - api.github.com (En vivo, USERTrust ECC)
-          # - aaa_services.crt (Local, AAA)
-          # - starfield_class2.crt (Local, Starfield)
+          # CAMBIO CLAVE: Usamos 'convert' en lugar de 'download'.
+          # Esto procesa los archivos locales sin intentar conectarse a internet.
           
-          python3 pycert_bearssl.py download \
-            api.github.com \
-            aaa_services.crt \
-            starfield_class2.crt \
+          python3 pycert_bearssl.py convert \
+            *.crt \
             --output MCM_CertStore.h
             
           # LIMPIEZA
