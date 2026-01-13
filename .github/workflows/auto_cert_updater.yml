@@ -21,13 +21,10 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Instalar dependencias del sistema
+      - name: Instalar dependencias
         run: |
           sudo apt-get update
           sudo apt-get install -y ca-certificates openssl
-
-      - name: Instalar dependencias de Python
-        run: |
           pip install click pyopenssl certifi
 
       - name: Descargar herramientas
@@ -37,21 +34,30 @@ jobs:
 
       - name: Generar nuevos certificados (MCM_CertStore.h)
         run: |
-          echo "Generando Trust Anchors..."
+          echo "Obteniendo certificados exactos..."
+
+          # 1. Descargamos 'AAA Certificate Services' (Raíz Legacy de Comodo/Sectigo)
+          # Fuente: Repositorio oficial de Comodo/Sectigo vía crt.sh (ID 331986)
+          wget -O aaa_services.crt "https://crt.sh/?d=331986"
+
+          # 2. Descargamos 'Starfield Class 2' (Raíz Legacy de AWS/GoDaddy)
+          # Fuente: Repositorio oficial de GoDaddy
+          wget -O starfield_class2.crt "https://certs.godaddy.com/repository/sf_class2_root.crt"
+
+          echo "Generando Trust Anchors combinados..."
           
-          # ESTRATEGIA DE "DOMINIOS ANCLA":
-          # 1. api.github.com -> El real que usa GitHub hoy.
-          # 2. sectigo.com -> Forza la inclusión de 'USERTrust' y 'AAA' (Sectigo/Comodo).
-          # 3. aws.amazon.com -> Forza la inclusión de 'Starfield' (AWS), más estable que escanear s3.
+          # COMANDO MAGISTRAL:
+          # - api.github.com: Lo escaneamos en vivo para tener el ECC actual.
+          # - *.crt: Le pasamos los archivos locales para forzar los Legacy.
           
           python3 pycert_bearssl.py download \
             api.github.com \
-            sectigo.com \
-            aws.amazon.com \
+            aaa_services.crt \
+            starfield_class2.crt \
             --output MCM_CertStore.h
             
           # LIMPIEZA
-          rm pycert_bearssl.py cert_util.py
+          rm *.crt *.py
           rm -rf __pycache__
             
           # Movemos el archivo generado a la ubicación correcta (ajusta si tu .h está en una carpeta 'src' o 'include')
