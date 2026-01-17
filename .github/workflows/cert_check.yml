@@ -1,57 +1,57 @@
-name: Monitor de Certificados OTA
+name: OTA Certificates Monitor
 
 on:
   schedule:
-    - cron: '0 8 * * *' # Ejecutar todos los días a las 8 AM UTC
-  workflow_dispatch:    # Botón manual para probarlo ya mismo
+    - cron: '0 8 * * *' # Run everyday at 8 AM UTC
+  workflow_dispatch:    # Manual trigger enabled
 
 jobs:
   check-certs:
     runs-on: ubuntu-latest
     steps:
-      - name: Verificar Cadena de Certificados (API y CDN)
+      - name: Verify Certificate Chain (API and CDN)
         run: |
-          # Función para verificar un dominio
+          # Function to verify a domain
           check_domain() {
             local domain=$1
             echo "------------------------------------------------"
-            echo "🔍 Verificando dominio: $domain"
+            echo "🔍 Verifying domain: $domain"
             
-            # Obtener el Issuer (quien firma el certificado)
-            # Usamos -connect con timeout para evitar bloqueos
+            # Get the Issuer (who signs the certificate)
+            # We use -connect with timeout to avoid blocks
             local issuer=$(echo | openssl s_client -servername $domain -connect $domain:443 2>/dev/null | openssl x509 -noout -issuer)
             
             if [ -z "$issuer" ]; then
-              echo "::error::❌ Error de conexión o SSL handshake fallido con $domain"
+              echo "::error::❌ Connection error or failed SSL handshake with $domain"
               return 1
             fi
             
-            echo "   📄 Emisor detectado: $issuer"
+            echo "   📄 Detected issuer: $issuer"
             
-            # LISTA BLANCA DE EMISORES CONOCIDOS
-            # DigiCert: Usado tradicionalmente por GitHub
-            # Sectigo / USERTrust: Usado actualmente en la API
-            # Entrust / Starfield: A veces usado en CDNs
+            # WHITELIST OF KNOWN ISSUERS
+            # DigiCert: Traditionally used by GitHub
+            # Sectigo / USERTrust: Currently used in the API
+            # Entrust / Starfield: Sometimes used in CDNs
             
             if [[ "$issuer" == *"DigiCert"* ]] || \
                [[ "$issuer" == *"Sectigo"* ]] || \
                [[ "$issuer" == *"USERTrust"* ]] || \
                [[ "$issuer" == *"Starfield"* ]]; then
                
-              echo "   ✅ Certificado OK (Confianza válida)."
+              echo "   ✅ Certificate OK (Valid trust)."
             else
-              echo "::error::🚨 ¡ALERTA! El certificado de $domain ha cambiado a un emisor desconocido!"
-              echo "   Nuevo Emisor: $issuer"
+              echo "::error::🚨 ALERT! The certificate for $domain has changed to an unknown issuer!"
+              echo "   New Issuer: $issuer"
               return 1
             fi
           }
 
-          # 1. Verificar la API (Controla la consulta de versión JSON)
+          # 1. Verify the API (Controls the JSON version query)
           check_domain "api.github.com" || exit 1
           
-          # 2. Verificar el CDN (Controla la descarga del .bin)
-          # Esto es vital porque aquí es donde suelen usar certificados viejos o rotar a Azure/AWS
+          # 2. Verify the CDN (Controls the .bin download)
+          # This is vital because this is where they usually use old certificates or rotate to Azure/AWS
           check_domain "raw.githubusercontent.com" || exit 1
           
           echo "------------------------------------------------"
-          echo "🎉 Todo parece en orden. Tus Trust Anchors deberían seguir funcionando."
+          echo "🎉 Everything seems in order. Your Trust Anchors should continue working."
