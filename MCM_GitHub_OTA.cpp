@@ -50,12 +50,10 @@ void MCM_GitHub_OTA::checkForUpdate() {
     String body;
     bool fetchSuccess = false;
     
-    // Bandera para saber si estamos operando con seguridad o no.
-    // Esto es crucial para decidir si activamos el fallback tardío.
     bool isSecureSession = true; 
 
     // ------------------------------------------------------------
-    // INTENTO 1: MODO SEGURO (Con Trust Anchors)
+    // Secure Mode (with Trust Anchors)
     // ------------------------------------------------------------
     Serial.printf("[MCM-OTA] Attempting SECURE connection via %s...\n", netName);
     
@@ -79,13 +77,13 @@ void MCM_GitHub_OTA::checkForUpdate() {
     }
 
     // ------------------------------------------------------------
-    // INTENTO 2: PARACAÍDAS TEMPRANO (Si falló el JSON)
+    // Insecure Fallback Mode (No Cert Validation)
     // ------------------------------------------------------------
     if (!fetchSuccess) {
         Serial.println("[MCM-OTA] !!! ACTIVATING INSECURE FALLBACK (JSON FETCH) !!!");
         delay(500); 
 
-        // Marcamos que ya NO es seguro
+        // Insecure setting
         isSecureSession = false;
 
         if (net == MCM_NET_ETH) {
@@ -95,7 +93,7 @@ void MCM_GitHub_OTA::checkForUpdate() {
         }
 
         if (clientPtr) {
-            clientPtr->setInsecure(); // <--- Método clave de tu librería modificada
+            clientPtr->setInsecure(); // <--- SSLClient custom library method
 
             Serial.printf("[MCM-OTA-%s] Retrying connection INSECURELY...\n", netName);
             if (getJson(clientPtr, latestReleaseUrl(), body, netName)) {
@@ -113,7 +111,7 @@ void MCM_GitHub_OTA::checkForUpdate() {
     }
 
     // ------------------------------------------------------------
-    // PROCESAMIENTO COMÚN
+    // Common Processing (Parse JSON and decide on update)
     // ------------------------------------------------------------
     JsonDocument doc;
     auto err = deserializeJson(doc, body);
@@ -217,7 +215,7 @@ void MCM_GitHub_OTA::checkForUpdate() {
 }
 
 // ==========================================================
-// Helpers (Sin cambios)
+// Helpers
 // ==========================================================
 String MCM_GitHub_OTA::ua() { return String("esp32-ota/") + _currentVersion; }
 
