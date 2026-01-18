@@ -19,7 +19,7 @@ This library allows your ESP32 devices to update themselves automatically by fet
 
 To use this library, ensure the following dependencies are installed:
 
-1.  **SSLClient** (by OPEnSLab-OSU) - For secure connection handling over Ethernet/WiFi.
+1.  **SSLClient** ([MCMCHRIS fork](https://github.com/mcmchris/SSLClient)) - For secure connection handling over Ethernet/WiFi.
 2.  **ArduinoJson** (by Benoit Blanchon) - For parsing GitHub API responses.
 3.  **Ethernet** (by Arduino) - Required if using W5500/W5100 modules.
 
@@ -43,6 +43,8 @@ You can install this library using one of the following methods:
 2.  Go to **Sketch** > **Include Library** > **Manage Libraries...**
 3.  Search for `MCM_GitHub_OTA`.
 4.  Click **Install**.
+
+**Note:** You will need the [SSLClient library (MCMCHRIS version)](https://github.com/mcmchris/SSLClient)
 
 ---
 
