@@ -73,7 +73,7 @@ private:
     bool pipeChunkedToUpdate(SSLClient* c);
     
     bool performUpdate(SSLClient* client, const String& startUrl, bool addAuth, const char* netName);
-    bool getJson(SSLClient* client, const String& url, String& bodyOut, const char* netName);
+    bool getJson(SSLClient* client, const String& url, String& bodyOut, const char* netName, String overrideToken, int& httpCodeOut);
     
     bool canFit(size_t content_len);
     void confirmOtaIfPending();

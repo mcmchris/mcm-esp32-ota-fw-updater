@@ -37,7 +37,7 @@ void MCM_GitHub_OTA::setSSLDebug(SSLClient::DebugLevel level) {
 }
 
 // ==========================================================
-// Main Logic (Optimized with Late Fallback)
+// Main Logic (Optimized with Late Fallback & Token Rescue)
 // ==========================================================
 void MCM_GitHub_OTA::checkForUpdate() {
     MCM_NetType net = pickNetFast();
@@ -48,17 +48,18 @@ void MCM_GitHub_OTA::checkForUpdate() {
     
     SSLClient* clientPtr = nullptr;
     String body;
+    int httpCode = 0; // To save the connection result
     bool fetchSuccess = false;
     
-    // Bandera para saber si estamos operando con seguridad o no.
-    // Esto es crucial para decidir si activamos el fallback tardío.
+    // Flag to know if we are operating securely or not.
     bool isSecureSession = true; 
 
     // ------------------------------------------------------------
-    // INTENTO 1: MODO SEGURO (Con Trust Anchors)
+    // ATTEMPT 1: SECURE MODE (With Trust Anchors + Original Token)
     // ------------------------------------------------------------
     Serial.printf("[MCM-OTA] Attempting SECURE connection via %s...\n", netName);
     
+    // SSL client configuration (same as before)
     if (net == MCM_NET_ETH) {
         clientPtr = new SSLClient(_eth_client, TAs, TAs_NUM, -1, 1, 18200, _sslDebugLevel);
     } else {
@@ -66,12 +67,41 @@ void MCM_GitHub_OTA::checkForUpdate() {
     }
 
     if (clientPtr) {
-        if (getJson(clientPtr, latestReleaseUrl(), body, netName)) {
+        // We use modified getJson that returns the HTTP code in 'httpCode'
+        // We pass _token by default
+        if (getJson(clientPtr, latestReleaseUrl(), body, netName, _token, httpCode)) {
             fetchSuccess = true;
         } else {
-            Serial.println("[MCM-OTA] Secure connection failed (Possible Cert Issue).");
-            delete clientPtr; 
-            clientPtr = nullptr;
+            // If it failed, we check why
+            Serial.printf("[MCM-OTA] Connection failed. HTTP Code: %d\n", httpCode);
+            
+            // --- RESCUE LOGIC (FAILED TOKEN 401) ---
+            if (httpCode == 401) {
+                Serial.println("[MCM-OTA] !!! TOKEN REVOKED/INVALID (401) DETECTED !!!");
+                Serial.println("[MCM-OTA] !!! ATTEMPTING RESCUE: RETRYING WITHOUT TOKEN !!!");
+                
+                // We restart the client to clean state
+                clientPtr->stop();
+                
+                // We retry the request but passing an empty String "" as token
+                int rescueCode = 0;
+                String rescueBody;
+                if (getJson(clientPtr, latestReleaseUrl(), rescueBody, netName, "", rescueCode)) {
+                    Serial.println("[MCM-OTA] Rescue successful! Repository is likely Public.");
+                    body = rescueBody;
+                    fetchSuccess = true;
+                    // IMPORTANT: For the .bin download we must also ignore the token
+                    _token = ""; 
+                } else {
+                     Serial.printf("[MCM-OTA] Rescue failed too. HTTP: %d\n", rescueCode);
+                }
+            }
+            
+            if (!fetchSuccess) {
+                Serial.println("[MCM-OTA] Secure connection failed (Possible Cert Issue or Rescue Failed).");
+                delete clientPtr; 
+                clientPtr = nullptr;
+            }
         }
     } else {
         Serial.println("[MCM-OTA] OOM: Could not allocate SSL Buffer (Secure)!");
@@ -79,13 +109,12 @@ void MCM_GitHub_OTA::checkForUpdate() {
     }
 
     // ------------------------------------------------------------
-    // INTENTO 2: PARACAÍDAS TEMPRANO (Si falló el JSON)
+    // ATTEMPT 2: EARLY PARACHUTE (If JSON failed due to certificates)
     // ------------------------------------------------------------
-    if (!fetchSuccess) {
+    if (!fetchSuccess && httpCode != 401) { // Only if it was NOT a token error (we already tried to rescue it)
         Serial.println("[MCM-OTA] !!! ACTIVATING INSECURE FALLBACK (JSON FETCH) !!!");
         delay(500); 
 
-        // Marcamos que ya NO es seguro
         isSecureSession = false;
 
         if (net == MCM_NET_ETH) {
@@ -95,13 +124,26 @@ void MCM_GitHub_OTA::checkForUpdate() {
         }
 
         if (clientPtr) {
-            clientPtr->setInsecure(); // <--- Método clave de tu librería modificada
+            clientPtr->setInsecure(); 
 
             Serial.printf("[MCM-OTA-%s] Retrying connection INSECURELY...\n", netName);
-            if (getJson(clientPtr, latestReleaseUrl(), body, netName)) {
+            // We try insecure with the original token first
+            if (getJson(clientPtr, latestReleaseUrl(), body, netName, _token, httpCode)) {
                 Serial.println("[MCM-OTA] Insecure connection successful.");
                 fetchSuccess = true;
-            } else {
+            } 
+            // If it fails with 401 in insecure mode, we also try rescue
+            else if (httpCode == 401) {
+                 Serial.println("[MCM-OTA] (Insecure) 401 Detected. Retrying WITHOUT TOKEN...");
+                 clientPtr->stop();
+                 if (getJson(clientPtr, latestReleaseUrl(), body, netName, "", httpCode)) {
+                     Serial.println("[MCM-OTA] (Insecure) Rescue successful without token.");
+                     fetchSuccess = true;
+                     _token = ""; // We clear token for the subsequent download
+                 }
+            }
+            
+            if (!fetchSuccess) {
                 Serial.println("[MCM-OTA] Insecure connection also failed. Aborting.");
                 delete clientPtr;
                 return;
@@ -112,9 +154,7 @@ void MCM_GitHub_OTA::checkForUpdate() {
         }
     }
 
-    // ------------------------------------------------------------
-    // PROCESAMIENTO COMÚN
-    // ------------------------------------------------------------
+    // --- COMMON PROCESSING ---
     JsonDocument doc;
     auto err = deserializeJson(doc, body);
     if (err) {
@@ -122,7 +162,7 @@ void MCM_GitHub_OTA::checkForUpdate() {
         delete clientPtr;
         return;
     }
-
+    
     String remoteVersion = doc["tag_name"] | "";
     if (remoteVersion.length() == 0) {
         Serial.println("[MCM-OTA] No tag_name found");
@@ -171,26 +211,21 @@ void MCM_GitHub_OTA::checkForUpdate() {
     String assetUrl = String("https://api.github.com/repos/") + _owner + "/" + _repo + "/releases/assets/" + String(assetId);
     Serial.printf("[MCM-OTA] Downloading update from: %s\n", assetUrl.c_str());
 
+    // We use the current token (which may have been erased by the rescue)
     bool useAuth = (_token.length() > 0);
     
-    // --- DESCARGA (INTENTO PRINCIPAL) ---
+    // --- DOWNLOAD (MAIN ATTEMPT) ---
     bool success = performUpdate(clientPtr, assetUrl, useAuth, netName);
 
-    // ------------------------------------------------------------
-    // FALLBACK TARDÍO (LATE FALLBACK) - CORRECCIÓN CLAVE
-    // Si la descarga falló Y todavía estamos en modo seguro,
-    // significa que el certificado del API estaba bien, pero el del CDN falló.
-    // ------------------------------------------------------------
+    // ... [REST OF THE LATE FALLBACK LOGIC] ...
     if (!success && isSecureSession) {
         Serial.println("[MCM-OTA] !!! DOWNLOAD FAILED SECURELY (Likely CDN Cert Issue) !!!");
         Serial.println("[MCM-OTA] !!! ACTIVATING INSECURE FALLBACK (DOWNLOAD PHASE) !!!");
         
-        // 1. Matamos al cliente seguro
         delete clientPtr;
         clientPtr = nullptr;
         delay(500);
 
-        // 2. Nacemos como cliente inseguro
         if (net == MCM_NET_ETH) {
             clientPtr = new SSLClient(_eth_client, TAs, 0, -1, 1, 18200, _sslDebugLevel);
         } else {
@@ -198,15 +233,12 @@ void MCM_GitHub_OTA::checkForUpdate() {
         }
 
         if (clientPtr) {
-            clientPtr->setInsecure(); // Desactivar validación
-            
+            clientPtr->setInsecure();
             Serial.println("[MCM-OTA] Retrying download INSECURELY...");
-            // 3. Reintentamos solo la descarga (ya tenemos la URL)
             success = performUpdate(clientPtr, assetUrl, useAuth, netName);
         }
     }
 
-    // Último recurso: browser_download_url (sin Auth header)
     if (!success && !useAuth && browserUrl.length() > 0) {
         Serial.println("[MCM-OTA] Retrying via browser_download_url...");
         if(clientPtr) clientPtr->stop(); 
@@ -217,7 +249,7 @@ void MCM_GitHub_OTA::checkForUpdate() {
 }
 
 // ==========================================================
-// Helpers (Sin cambios)
+// Helpers 
 // ==========================================================
 String MCM_GitHub_OTA::ua() { return String("esp32-ota/") + _currentVersion; }
 
@@ -282,7 +314,7 @@ MCM_NetType MCM_GitHub_OTA::pickNetFast() {
     return MCM_NET_NONE;
 }
 
-bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyOut, const char* netName) {
+bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyOut, const char* netName, String overrideToken, int& httpCodeOut) {
     String host = hostOf(url);
     String path = pathOf(url);
     int port = portOf(url);
@@ -292,6 +324,7 @@ bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyO
     if (!client->connect(host.c_str(), port)) {
         Serial.printf("[MCM-OTA-%s] TLS Connect failed to %s:%d\n", netName, host.c_str(), port);
         client->stop();
+        httpCodeOut = -1; // Connection error
         return false;
     }
 
@@ -299,20 +332,28 @@ bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyO
     client->print(F("Host: ")); client->println(host);
     client->print(F("User-Agent: ")); client->println(ua());
     client->println(F("Accept: application/vnd.github+json"));
-    if (_token.length() > 0) {
-        client->print(F("Authorization: Bearer ")); client->println(_token);
+    
+    // We use the token passed by parameter (which can be the global or "")
+    if (overrideToken.length() > 0) {
+        client->print(F("Authorization: Bearer ")); client->println(overrideToken);
     }
+    
     client->println(F("Connection: close"));
     client->println();
 
     RespHdrBin h;
     if (!readHeadersBin(client, h)) {
         client->stop();
+        httpCodeOut = -2; // Headers error
         return false;
     }
+    
+    // We save the HTTP code so that the main logic knows if it was 401
+    httpCodeOut = h.status;
 
     if (h.status != 200) {
-        Serial.printf("[MCM-OTA-%s] JSON HTTP Status %d\n", netName, h.status);
+        // We don't close the connection here to allow reading the error body if desired,
+        // but to simplify:
         client->stop();
         return false;
     }
