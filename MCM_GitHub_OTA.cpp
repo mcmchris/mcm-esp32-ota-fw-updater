@@ -324,7 +324,7 @@ bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyO
     if (!client->connect(host.c_str(), port)) {
         Serial.printf("[MCM-OTA-%s] TLS Connect failed to %s:%d\n", netName, host.c_str(), port);
         client->stop();
-        httpCodeOut = -1; // Connection error
+        httpCodeOut = -1; 
         return false;
     }
 
@@ -333,7 +333,6 @@ bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyO
     client->print(F("User-Agent: ")); client->println(ua());
     client->println(F("Accept: application/vnd.github+json"));
     
-    // We use the token passed by parameter (which can be the global or "")
     if (overrideToken.length() > 0) {
         client->print(F("Authorization: Bearer ")); client->println(overrideToken);
     }
@@ -344,30 +343,37 @@ bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyO
     RespHdrBin h;
     if (!readHeadersBin(client, h)) {
         client->stop();
-        httpCodeOut = -2; // Headers error
+        httpCodeOut = -2;
         return false;
     }
     
-    // We save the HTTP code so that the main logic knows if it was 401
     httpCodeOut = h.status;
 
     if (h.status != 200) {
-        // We don't close the connection here to allow reading the error body if desired,
-        // but to simplify:
         client->stop();
         return false;
     }
 
     bodyOut.reserve((h.contentLen > 0) ? (size_t)h.contentLen : 4096);
     
-    for (;;) {
-        size_t n = client->readBytes(_global_buf, sizeof(_global_buf));
-        if (n == 0) {
-            if (client->connected()) continue;
-            break;
+    unsigned long lastData = millis();
+    while (client->connected() || client->available()) {
+        int avail = client->available();
+        if (avail > 0) {
+            int toRead = (avail > (int)sizeof(_global_buf)) ? (int)sizeof(_global_buf) : avail;
+            int n = client->read(_global_buf, toRead);
+            if (n > 0) {
+                bodyOut.concat(String((char*)_global_buf).substring(0, n));
+                lastData = millis();
+            }
+        } else {
+            delay(1);
+
+            if (millis() - lastData > 5000) break; 
         }
-        bodyOut.concat(String((char*)_global_buf).substring(0, n));
     }
+    // -----------------------
+
     client->stop();
     return true;
 }
@@ -512,10 +518,11 @@ bool MCM_GitHub_OTA::readLine(SSLClient* c, String& out, unsigned long timeoutMs
     out = "";
     unsigned long t0 = millis();
     bool gotCR = false;
-    while (true) {
-        if (c->available()) {
-            int ch = c->read();
-            if (ch < 0) continue;
+    
+    while ((millis() - t0) < timeoutMs) {
+        int ch = c->read(); 
+        
+        if (ch >= 0) {
             char cch = (char)ch;
             if (gotCR && cch == '\n') return true;
             if (cch == '\r') {
@@ -526,10 +533,13 @@ bool MCM_GitHub_OTA::readLine(SSLClient* c, String& out, unsigned long timeoutMs
             out += cch;
             if (out.length() > 8192) return false; 
         } else {
-            if ((millis() - t0) > timeoutMs) return false;
-            delay(1);
+            if (!c->connected() && c->available() == 0) {
+                return false; 
+            }
+            delay(1); 
         }
     }
+    return false; // Timeout
 }
 
 bool MCM_GitHub_OTA::readHeadersBin(SSLClient* c, RespHdrBin& h) {
