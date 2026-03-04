@@ -37,6 +37,90 @@ void MCM_GitHub_OTA::setSSLDebug(SSLClient::DebugLevel level) {
 }
 
 // ==========================================================
+// NUEVO: Solo verifica la versión, no descarga el binario
+// ==========================================================
+bool MCM_GitHub_OTA::checkVersion() {
+    MCM_NetType net = pickNetFast();
+    if (net == MCM_NET_NONE) {
+        Serial.println("[MCM-OTA-CHK] No hay red disponible para verificar versión.");
+        return false;
+    }
+
+    const char* netName = (net == MCM_NET_ETH) ? "ETH" : "WIFI";
+    SSLClient* clientPtr = nullptr;
+    String body;
+    int httpCode = 0; 
+    bool fetchSuccess = false;
+
+    Serial.printf("[MCM-OTA-CHK] Consultando API de GitHub vía %s...\n", netName);
+    
+    // 1. Inicializar cliente SSL seguro
+    if (net == MCM_NET_ETH) {
+        clientPtr = new SSLClient(_eth_client, TAs, TAs_NUM, -1, 1, 18200, _sslDebugLevel);
+    } else {
+        clientPtr = new SSLClient(_wifi_client, TAs, TAs_NUM, -1, 1, 18200, _sslDebugLevel);
+    }
+
+    if (!clientPtr) {
+        Serial.println("[MCM-OTA-CHK] OOM: No se pudo asignar buffer SSL.");
+        return false;
+    }
+
+    // 2. Realizar petición GET al JSON
+    if (getJson(clientPtr, latestReleaseUrl(), body, netName, _token, httpCode)) {
+        fetchSuccess = true;
+    } else {
+        // Fallback inseguro si falla el seguro (similar a checkForUpdate)
+        if (httpCode != 401) { 
+            Serial.println("[MCM-OTA-CHK] Fallo seguro. Reintentando inseguro...");
+            clientPtr->stop();
+            clientPtr->setInsecure();
+            if (getJson(clientPtr, latestReleaseUrl(), body, netName, _token, httpCode)) {
+                fetchSuccess = true;
+            }
+        }
+    }
+
+    // Limpiar el cliente SSL rápido para liberar RAM
+    delete clientPtr;
+
+    if (!fetchSuccess) {
+        Serial.println("[MCM-OTA-CHK] Falló la conexión al API de GitHub.");
+        return false;
+    }
+
+    // 3. Procesar el JSON
+    JsonDocument doc;
+    auto err = deserializeJson(doc, body);
+    if (err) {
+        Serial.printf("[MCM-OTA-CHK] Error parseando JSON: %s\n", err.c_str());
+        return false;
+    }
+    
+    String remoteVersion = doc["tag_name"] | "";
+    if (remoteVersion.length() == 0) {
+        Serial.println("[MCM-OTA-CHK] No se encontró tag_name en el release.");
+        return false;
+    }
+
+    // 4. Comparar versiones
+    Serial.println("=========================================");
+    Serial.printf("[MCM-OTA-CHK] Versión Local Actual: %s\n", _currentVersion.c_str());
+    Serial.printf("[MCM-OTA-CHK] Versión Remota Nueva: %s\n", remoteVersion.c_str());
+    Serial.println("=========================================");
+
+    if (remoteVersion == _currentVersion) {
+        _isUpToDate = true;
+        Serial.println("[MCM-OTA-CHK] Tu sistema está actualizado.");
+        return false;
+    } else {
+        _isUpToDate = false;
+        Serial.println("[MCM-OTA-CHK] ¡NUEVA VERSIÓN DETECTADA!");
+        return true; // Retorna true para que tu main.ino inicie el reset
+    }
+}
+
+// ==========================================================
 // Main Logic (Optimized with Late Fallback & Token Rescue)
 // ==========================================================
 void MCM_GitHub_OTA::checkForUpdate() {

@@ -38,6 +38,7 @@ public:
     void begin(const char* owner, const char* repo, const char* currentVersion, const char* token = "");
 
     void setSSLDebug(SSLClient::DebugLevel level);
+    bool checkVersion();
 
     void checkForUpdate();
     bool isUpdated();
