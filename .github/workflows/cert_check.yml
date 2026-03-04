@@ -36,7 +36,8 @@ jobs:
             if [[ "$issuer" == *"DigiCert"* ]] || \
                [[ "$issuer" == *"Sectigo"* ]] || \
                [[ "$issuer" == *"USERTrust"* ]] || \
-               [[ "$issuer" == *"Starfield"* ]]; then
+               [[ "$issuer" == *"Starfield"* ]] || \
+               [[ "$issuer" == *"Let's Encrypt"* ]]; then
                
               echo "   ✅ Certificate OK (Valid trust)."
             else
