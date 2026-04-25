@@ -453,7 +453,7 @@ bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyO
         } else {
             delay(1);
 
-            if (millis() - lastData > 5000) break; 
+            if (millis() - lastData > 15000) break; 
         }
     }
     // -----------------------
