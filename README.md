@@ -10,6 +10,7 @@ This library allows your ESP32 devices to update themselves automatically by fet
 * **GitHub Releases Integration:** Parses the GitHub API to find the latest release tag and corresponding binary asset (`.bin`).
 * **Secure by Default:** Uses `SSLClient` with BearSSL and Trust Anchors (Root CAs) to ensure firmware is downloaded from the genuine source.
 * **Resilient "Late Fallback" Mode:** If the secure connection to the API succeeds but the download server (CDN) fails (a common issue with changing certificates on AWS/Azure), the library automatically retries the download in "Insecure Mode" to ensure the update applies.
+* **Heap Fragmentation Mitigation:** Introduces a lightweight `checkVersion()` method supporting the "Reboot-to-Update" pattern, ensuring reliable OTA allocations (avoiding `err=0`) even after devices have been running for extended periods.
 * **Memory Efficient:** Uses a shared global buffer to minimize heap fragmentation during large downloads.
 * **Private Repo Support:** Supports Personal Access Tokens (PAT) for private repositories.
 
@@ -73,7 +74,20 @@ Configures the target repository and versioning.
 - `currentVersion`: The current firmware tag (e.g., "v1.0.0"). If the remote tag differs, an update is triggered.
 - `token`: (Optional) GitHub Personal Access Token for private repositories.
   
-### Update Check
+### Update Checking & Downloading
+
+```cpp
+void checkVersion();
+```
+
+Performs a lightweight secure check against the GitHub API to see if a new release is available.
+
+- Securely connects to fetch only the release JSON metadata (~2KB).
+- Compares the remote `tag_name` against the local firmware version.
+- Immediately destroys the `SSLClient` to free memory.
+- Returns `true` if a newer version is available.
+
+Best Practice (Reboot-to-Update): Use this method inside your `loop()` to monitor for updates. If it returns `true`, trigger an `ESP.restart()`. Then, run the heavy `checkForUpdate()` during the fresh `setup()` phase when the heap is 100% clean to prevent memory allocation errors (`Update.begin failed err=0`).
 
 ```cpp
 void checkForUpdate();
