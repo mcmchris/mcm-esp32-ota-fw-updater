@@ -15,7 +15,6 @@ const bool ENABLE_ETH = true;
 const bool ENABLE_WIFI = true;
 
 // --- OTA Timings ---
-const unsigned long OTA_INITIAL_DELAY = 10000;        // 10 seconds after boot
 const unsigned long OTA_PERIODIC_INTERVAL = 3600000;  // 1 hour (60 * 60 * 1000)
 
 // Variable to control when the next check is due
@@ -159,14 +158,15 @@ if (ENABLE_WIFI) {
   // 3. CONFIGURE OTA
   // ---------------------------------------------------------
   ota.begin(GH_OWNER, GH_REPO, FW_VERSION, GH_TOKEN);
-  ota.setSSLDebug(SSLClient::SSL_WARN);
-  // ============================================================
-  // TIME LOGIC: Schedule the FIRST execution
-  // ============================================================
-  // "millis() + 10000" means: Execute 10 seconds from now.
-  nextOtaCheck = millis() + OTA_INITIAL_DELAY;
+  ota.setSSLDebug(SSLClient::SSL_NONE);
 
-  Serial.printf("=== READY. First OTA check in %lu sec ===\n", OTA_INITIAL_DELAY / 1000);
+  Serial.println("\n=== Performing Initial OTA Check (Clean Heap) ===");
+  ota.checkForUpdate();
+
+  // TIME LOGIC: Schedule the FIRST lightweight execution
+  nextOtaCheck = millis() + OTA_PERIODIC_INTERVAL;
+
+  Serial.printf("=== READY. Next lightweight check in %lu sec ===\n", OTA_PERIODIC_INTERVAL / 1000);
 }
 
 void loop() {
@@ -181,9 +181,18 @@ void loop() {
 
   // 3. OTA Timer
   if ((long)(millis() - nextOtaCheck) >= 0) {
-    ota.checkForUpdate();
-    nextOtaCheck = millis() + OTA_PERIODIC_INTERVAL;
-    Serial.println("[LOOP] Next check scheduled in 1 hour.");
+    Serial.println("\n[LOOP] Performing lightweight version check...");
+    
+    // checkVersion() just download the JSON (~2KB) and compares versions, without downloading the firmware. It's a quick way to check for updates without risking running out of RAM.
+    if (ota.checkVersion()) {
+        Serial.println("[LOOP] New version found! Rebooting for a clean installation...");
+        delay(1000);
+        ESP.restart(); // After reboot the OTA will detect the new version and perform the update with a clean heap.
+    } else {
+        // If we are here, it means we are up to date. Schedule the next check.
+        nextOtaCheck = millis() + OTA_PERIODIC_INTERVAL;
+        Serial.println("[LOOP] Next check scheduled in 1 hour.");
+    }
   }
 
   // 4. Blink
