@@ -421,7 +421,7 @@ bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyO
         client->print(F("Authorization: Bearer ")); client->println(overrideToken);
     }
     
-    client->println(F("Connection: close"));
+    client->println(F("Connection: keep-alive"));
     client->println();
 
     RespHdrBin h;
@@ -444,16 +444,23 @@ bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyO
     while (client->connected() || client->available()) {
         int avail = client->available();
         if (avail > 0) {
-            int toRead = (avail > (int)sizeof(_global_buf)) ? (int)sizeof(_global_buf) : avail;
+            // Leemos como máximo el tamaño del buffer MENOS 1 byte (para el terminador nulo)
+            int toRead = (avail > (int)(sizeof(_global_buf) - 1)) ? (int)(sizeof(_global_buf) - 1) : avail;
             int n = client->read(_global_buf, toRead);
+            
             if (n > 0) {
-                bodyOut.concat(String((char*)_global_buf).substring(0, n));
+                _global_buf[n] = '\0'; // Inyectamos el terminador nulo de forma segura
+                bodyOut += (const char*)_global_buf; // Añadimos al String final sin hacer copias pesadas
                 lastData = millis();
             }
         } else {
             delay(1);
 
             if (millis() - lastData > 15000) break; 
+        }
+
+        if (h.contentLen > 0 && bodyOut.length() >= (size_t)h.contentLen) {
+            break; 
         }
     }
     // -----------------------
