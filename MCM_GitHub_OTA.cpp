@@ -325,8 +325,18 @@ void MCM_GitHub_OTA::checkForUpdate() {
 
     if (!success && !useAuth && browserUrl.length() > 0) {
         Serial.println("[MCM-OTA] Retrying via browser_download_url...");
-        if(clientPtr) clientPtr->stop(); 
-        performUpdate(clientPtr, browserUrl, false, netName);
+        if (clientPtr) clientPtr->stop();
+        if (!clientPtr) {
+            if (net == MCM_NET_ETH)
+                clientPtr = new SSLClient(_eth_client, TAs, 0, -1, 1, 18200, _sslDebugLevel);
+            else
+                clientPtr = new SSLClient(_wifi_client, TAs, 0, -1, 1, 18200, _sslDebugLevel);
+            if (clientPtr) clientPtr->setInsecure();
+        }
+        if (clientPtr)
+            success = performUpdate(clientPtr, browserUrl, false, netName);
+        else
+            Serial.println("[MCM-OTA] OOM: Cannot retry via browser_download_url.");
     }
     
     delete clientPtr;
@@ -482,7 +492,13 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bo
 
         Serial.printf("[MCM-OTA-%s] Connecting %s:%d\n", netName, host.c_str(), port);
 
+        int reconnectAttempts = 0;
         RECONNECT:
+        if (reconnectAttempts >= 5) {
+            Serial.printf("[MCM-OTA] Max reconnect attempts reached (%u / %u bytes written).\n",
+                          (unsigned)wroteTotal, (unsigned)expectedTotal);
+            return false;
+        }
         client->setTimeout(120000);
         if (!client->connect(host.c_str(), port)) {
             Serial.printf("[MCM-OTA-%s] TLS Connect failed\n", netName);
@@ -558,7 +574,9 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bo
             if (!ok) {
                 client->stop();
                 if (haveExpected && wroteTotal < expectedTotal) {
-                    Serial.printf("\n[MCM-OTA] Connection closed @ %u / %u. Resuming...\n", (unsigned)wroteTotal, (unsigned)expectedTotal);
+                    reconnectAttempts++;
+                    Serial.printf("\n[MCM-OTA] Connection closed @ %u / %u. Resuming (attempt %d/5)...\n",
+                                  (unsigned)wroteTotal, (unsigned)expectedTotal, reconnectAttempts);
                     delay(1000);
                     goto RECONNECT;
                 }
