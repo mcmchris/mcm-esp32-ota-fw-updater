@@ -301,6 +301,13 @@ void MCM_GitHub_OTA::checkForUpdate() {
     // --- DOWNLOAD (MAIN ATTEMPT) ---
     bool success = performUpdate(clientPtr, assetUrl, useAuth, netName);
 
+    if (!success && pickNetFast() == MCM_NET_NONE) {
+        Serial.println("[MCM-OTA] Abortando proceso OTA por pérdida total de red. Se retomará en el próximo ciclo.");
+        if (Update.isRunning()) Update.abort();
+        delete clientPtr;
+        return;
+    }
+
     // ... [REST OF THE LATE FALLBACK LOGIC] ...
     if (!success && isSecureSession) {
         Serial.println("[MCM-OTA] !!! DOWNLOAD FAILED SECURELY (Likely CDN Cert Issue) !!!");
@@ -483,7 +490,28 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bo
         Serial.printf("[MCM-OTA-%s] Connecting %s:%d\n", netName, host.c_str(), port);
 
         RECONNECT:
-        client->setTimeout(120000);
+        if (pickNetFast() == MCM_NET_NONE) {
+            Serial.println(String("\n[MCM-OTA-") + netName + "] Red desconectada. Pausando OTA y esperando reconexión...");
+            
+            unsigned long waitStart = millis();
+            // Le damos hasta 60 segundos de gracia para que vuelvas al rango del router
+            while (pickNetFast() == MCM_NET_NONE && millis() - waitStart < 60000) {
+                delay(1000); 
+                Serial.print("."); // Imprimimos puntitos mientras caminamos de regreso al router
+            }
+            Serial.println();
+            
+            if (pickNetFast() == MCM_NET_NONE) {
+                Serial.println("[MCM-OTA] Tiempo de gracia (60s) agotado. Abortando descarga.");
+                return false; // Ahora sí, si no volviste en 1 minuto, abortamos.
+            } else {
+                Serial.println("[MCM-OTA] ¡Red recuperada! Intentando reanudar la descarga...");
+                // Pequeño delay para que el router termine de asignar IPs
+                delay(2000); 
+            }
+        }
+
+        client->setTimeout(15000);
         if (!client->connect(host.c_str(), port)) {
             Serial.printf("[MCM-OTA-%s] TLS Connect failed\n", netName);
             client->stop();
@@ -540,6 +568,13 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bo
 
         if (wroteTotal == 0) {
             size_t beginSize = haveExpected ? expectedTotal : (size_t)UPDATE_SIZE_UNKNOWN;
+            
+            // Liberar el estado de Update si quedó a medias en un intento fallido (micro-cortes)
+            if (Update.isRunning()) {
+                Update.abort();
+                Serial.println("[MCM-OTA] Partición de actualización previa abortada con éxito.");
+            }
+
             if (!Update.begin(beginSize)) {
                 Serial.printf("[MCM-OTA] Update.begin failed err=%u\n", Update.getError());
                 client->stop();
@@ -677,6 +712,11 @@ bool MCM_GitHub_OTA::pipeFixedToUpdate(SSLClient* c, long long contentLen, size_
 
     while (remaining > 0) {
         delay(0); yield();
+
+        if (pickNetFast() == MCM_NET_NONE) {
+            Serial.println("\n[MCM-OTA] Error crítico: Enlace físico perdido. Abortando descarga...");
+            return false;
+        }
         size_t toRead = (remaining > (long long)sizeof(_global_buf)) ? sizeof(_global_buf) : (size_t)remaining;
         size_t n = c->readBytes(_global_buf, toRead);
         if (n == 0) return false;
