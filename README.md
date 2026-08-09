@@ -13,7 +13,10 @@ This library allows your ESP32 devices to update themselves automatically by fet
 * **Heap Fragmentation Mitigation:** Introduces a lightweight `checkVersion()` method supporting the "Reboot-to-Update" pattern, ensuring reliable OTA allocations (avoiding `err=0`) even after devices have been running for extended periods.
 * **Memory Efficient:** Uses a shared global buffer to minimize heap fragmentation during large downloads.
 * **Private Repo Support:** Supports Personal Access Tokens (PAT) for private repositories.
-
+* **Intelligent OTA Pause & Resume (The "Pause-Switch"):** The library now survives total physical network loss mid-download (e.g., walking out of WiFi range or temporarily unplugging the Ethernet cable). Instead of freezing or failing immediately, the OTA process safely pauses, grants a 60-second grace period for the hardware to reconnect, and seamlessly resumes the payload download from the exact byte it left off using HTTP `Range` headers.
+* **Smart Fallback Routing:** The Insecure Fallback mechanism has been optimized. The library now actively differentiates between a TLS/Certificate verification failure and a physical link loss (`MCM_NET_NONE`). It will bypass the insecure fallback attempt if the physical network is disconnected, preventing useless loops and saving processing time.
+* **Real-Time Link Monitoring:** Implemented active hardware link checks directly inside the chunked/fixed download loops. This prevents the ESP32's internal LwIP sockets from timing out silently and hijacking the main `loop()` for extended periods when a router drops the connection without sending a TCP `RST`.
+* 
 ---
 
 ## 📦 Dependencies
