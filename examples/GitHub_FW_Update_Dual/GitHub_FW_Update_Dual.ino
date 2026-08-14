@@ -206,9 +206,9 @@ void loop() {
 // Helper function to handle Redundancy logic
 void manageNetworkRedundancy() {
   static unsigned long lastRedundancyCheck = 0;
-  static unsigned long lastWifiAttempt = 0; // Para no saturar intentos de WiFi
+  static unsigned long lastWifiAttempt = 0; // To avoid flooding WiFi attempts
   
-  // Revisar estado físico cada 2 segundos (para detectar cable rápido)
+  // Check physical link state every 2 seconds (to detect quick cable changes)
   if (millis() - lastRedundancyCheck > 2000) {
     lastRedundancyCheck = millis();
 

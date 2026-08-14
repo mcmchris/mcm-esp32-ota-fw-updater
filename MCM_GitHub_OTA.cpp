@@ -37,12 +37,12 @@ void MCM_GitHub_OTA::setSSLDebug(SSLClient::DebugLevel level) {
 }
 
 // ==========================================================
-// NUEVO: Solo verifica la versión, no descarga el binario
+// NEW: Only checks the version, does not download the binary
 // ==========================================================
 bool MCM_GitHub_OTA::checkVersion() {
     MCM_NetType net = pickNetFast();
     if (net == MCM_NET_NONE) {
-        Serial.println("[MCM-OTA-CHK] No hay red disponible para verificar versión.");
+        Serial.println("[MCM-OTA-CHK] No network available to check version.");
         return false;
     }
 
@@ -52,9 +52,9 @@ bool MCM_GitHub_OTA::checkVersion() {
     int httpCode = 0; 
     bool fetchSuccess = false;
 
-    Serial.printf("[MCM-OTA-CHK] Consultando API de GitHub vía %s...\n", netName);
+    Serial.printf("[MCM-OTA-CHK] Querying GitHub API via %s...\n", netName);
     
-    // 1. Inicializar cliente SSL seguro
+    // 1. Initialize secure SSL client
     if (net == MCM_NET_ETH) {
         clientPtr = new SSLClient(_eth_client, TAs, TAs_NUM, -1, 1, 18200, _sslDebugLevel);
     } else {
@@ -62,17 +62,17 @@ bool MCM_GitHub_OTA::checkVersion() {
     }
 
     if (!clientPtr) {
-        Serial.println("[MCM-OTA-CHK] OOM: No se pudo asignar buffer SSL.");
+        Serial.println("[MCM-OTA-CHK] OOM: Could not allocate SSL buffer.");
         return false;
     }
 
-    // 2. Realizar petición GET al JSON
+    // 2. Perform GET request for JSON
     if (getJson(clientPtr, latestReleaseUrl(), body, netName, _token, httpCode)) {
         fetchSuccess = true;
     } else {
-        // Fallback inseguro si falla el seguro (similar a checkForUpdate)
+        // Insecure fallback if secure mode fails (similar to checkForUpdate)
         if (httpCode != 401) { 
-            Serial.println("[MCM-OTA-CHK] Fallo seguro. Reintentando inseguro...");
+            Serial.println("[MCM-OTA-CHK] Secure check failed. Retrying insecure...");
             clientPtr->stop();
             clientPtr->setInsecure();
             if (getJson(clientPtr, latestReleaseUrl(), body, netName, _token, httpCode)) {
@@ -81,42 +81,42 @@ bool MCM_GitHub_OTA::checkVersion() {
         }
     }
 
-    // Limpiar el cliente SSL rápido para liberar RAM
+    // Clean up SSL client quickly to free RAM
     delete clientPtr;
 
     if (!fetchSuccess) {
-        Serial.println("[MCM-OTA-CHK] Falló la conexión al API de GitHub.");
+        Serial.println("[MCM-OTA-CHK] Failed to connect to GitHub API.");
         return false;
     }
 
-    // 3. Procesar el JSON
+    // 3. Process the JSON
     JsonDocument doc;
     auto err = deserializeJson(doc, body);
     if (err) {
-        Serial.printf("[MCM-OTA-CHK] Error parseando JSON: %s\n", err.c_str());
+        Serial.printf("[MCM-OTA-CHK] Error parsing JSON: %s\n", err.c_str());
         return false;
     }
     
     String remoteVersion = doc["tag_name"] | "";
     if (remoteVersion.length() == 0) {
-        Serial.println("[MCM-OTA-CHK] No se encontró tag_name en el release.");
+        Serial.println("[MCM-OTA-CHK] No tag_name found in release.");
         return false;
     }
 
-    // 4. Comparar versiones
+    // 4. Compare versions
     Serial.println("=========================================");
-    Serial.printf("[MCM-OTA-CHK] Versión Local Actual: %s\n", _currentVersion.c_str());
-    Serial.printf("[MCM-OTA-CHK] Versión Remota Nueva: %s\n", remoteVersion.c_str());
+    Serial.printf("[MCM-OTA-CHK] Local Current Version: %s\n", _currentVersion.c_str());
+    Serial.printf("[MCM-OTA-CHK] Remote New Version: %s\n", remoteVersion.c_str());
     Serial.println("=========================================");
 
     if (remoteVersion == _currentVersion) {
         _isUpToDate = true;
-        Serial.println("[MCM-OTA-CHK] Tu sistema está actualizado.");
+        Serial.println("[MCM-OTA-CHK] Your system is up to date.");
         return false;
     } else {
         _isUpToDate = false;
-        Serial.println("[MCM-OTA-CHK] ¡NUEVA VERSIÓN DETECTADA!");
-        return true; // Retorna true para que tu main.ino inicie el reset
+        Serial.println("[MCM-OTA-CHK] NEW VERSION DETECTED!");
+        return true; // Returns true so your main.ino can initiate the reset
     }
 }
 
@@ -265,7 +265,7 @@ void MCM_GitHub_OTA::checkForUpdate() {
         Serial.println("[MCM-OTA] Update available!");
     }
 
-    // Buscar asset .bin
+    // Search for .bin asset
     int assetId = -1;
     size_t assetSize = 0;
     String browserUrl = "";
@@ -302,7 +302,7 @@ void MCM_GitHub_OTA::checkForUpdate() {
     bool success = performUpdate(clientPtr, assetUrl, useAuth, netName);
 
     if (!success && pickNetFast() == MCM_NET_NONE) {
-        Serial.println("[MCM-OTA] Abortando proceso OTA por pérdida total de red. Se retomará en el próximo ciclo.");
+        Serial.println("[MCM-OTA] Aborting OTA process due to total network loss. Will resume on next cycle.");
         if (Update.isRunning()) Update.abort();
         delete clientPtr;
         return;
@@ -332,11 +332,11 @@ void MCM_GitHub_OTA::checkForUpdate() {
 
     if (!success && !useAuth && browserUrl.length() > 0) {
         Serial.println("[MCM-OTA] Retrying via browser_download_url...");
-        // Detener el cliente si existe
+        // Stop the client if it exists
         if (clientPtr) {
             clientPtr->stop();
         } else {
-            // Si el puntero es nulo (por un OOM anterior), intentamos revivirlo
+            // If the pointer is null (due to a previous OOM), try to recreate it
             if (net == MCM_NET_ETH) {
                 clientPtr = new SSLClient(_eth_client, TAs, 0, -1, 1, 18200, _sslDebugLevel);
             } else {
@@ -348,7 +348,7 @@ void MCM_GitHub_OTA::checkForUpdate() {
         if (clientPtr) {
             performUpdate(clientPtr, browserUrl, false, netName);
         } else {
-            Serial.println("[MCM-OTA] Fatal OOM: No se pudo asignar RAM para el cliente fallback.");
+            Serial.println("[MCM-OTA] Fatal OOM: Could not allocate RAM for fallback client.");
         }
     }
     
@@ -467,13 +467,13 @@ bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyO
     while (client->connected() || client->available()) {
         int avail = client->available();
         if (avail > 0) {
-            // Leemos como máximo el tamaño del buffer MENOS 1 byte (para el terminador nulo)
+            // Read at most the buffer size MINUS 1 byte (for the null terminator)
             int toRead = (avail > (int)(sizeof(_global_buf) - 1)) ? (int)(sizeof(_global_buf) - 1) : avail;
             int n = client->read(_global_buf, toRead);
             
             if (n > 0) {
-                _global_buf[n] = '\0'; // Inyectamos el terminador nulo de forma segura
-                bodyOut += (const char*)_global_buf; // Añadimos al String final sin hacer copias pesadas
+                _global_buf[n] = '\0'; // Inject null terminator safely
+                bodyOut += (const char*)_global_buf; // Append to final String without heavy copies
                 lastData = millis();
             }
         } else {
@@ -495,7 +495,7 @@ bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyO
 bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bool addAuth, const char* netName) {
 
     if (!client) {
-        Serial.println("[MCM-OTA] Error crítico: Puntero nulo detectado en performUpdate");
+        Serial.println("[MCM-OTA] Critical error: Null pointer detected in performUpdate");
         return false;
     }
 
@@ -520,22 +520,22 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bo
         }
 
         if (pickNetFast() == MCM_NET_NONE) {
-            Serial.println(String("\n[MCM-OTA-") + netName + "] Red desconectada. Pausando OTA y esperando reconexión...");
+            Serial.println(String("\n[MCM-OTA-") + netName + "] Network disconnected. Pausing OTA and waiting for reconnection...");
             
             unsigned long waitStart = millis();
-            // Le damos hasta 60 segundos de gracia para que vuelvas al rango del router
+            // Give up to 60 seconds grace for the device to return to router range
             while (pickNetFast() == MCM_NET_NONE && millis() - waitStart < 60000) {
                 delay(1000); 
-                Serial.print("."); // Imprimimos puntitos mientras caminamos de regreso al router
+                Serial.print("."); // Print dots while waiting to rejoin the router
             }
             Serial.println();
             
             if (pickNetFast() == MCM_NET_NONE) {
-                Serial.println("[MCM-OTA] Tiempo de gracia (60s) agotado. Abortando descarga.");
-                return false; // Ahora sí, si no volviste en 1 minuto, abortamos.
+                Serial.println("[MCM-OTA] Grace period (60s) exhausted. Aborting download.");
+                return false; // If it doesn't return within 1 minute, abort.
             } else {
-                Serial.println("[MCM-OTA] ¡Red recuperada! Intentando reanudar la descarga...");
-                // Pequeño delay para que el router termine de asignar IPs
+                Serial.println("[MCM-OTA] Network restored! Attempting to resume download...");
+                // Small delay to let the router finish assigning IPs
                 delay(2000); 
             }
         }
@@ -598,10 +598,10 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bo
         if (wroteTotal == 0) {
             size_t beginSize = haveExpected ? expectedTotal : (size_t)UPDATE_SIZE_UNKNOWN;
             
-            // Liberar el estado de Update si quedó a medias en un intento fallido (micro-cortes)
+            // Release Update state if left mid-way from a failed attempt (micro-cut)
             if (Update.isRunning()) {
                 Update.abort();
-                Serial.println("[MCM-OTA] Partición de actualización previa abortada con éxito.");
+                Serial.println("[MCM-OTA] Previous update partition aborted successfully.");
             }
 
             if (!Update.begin(beginSize)) {
@@ -744,7 +744,7 @@ bool MCM_GitHub_OTA::pipeFixedToUpdate(SSLClient* c, long long contentLen, size_
         delay(0); yield();
 
         if (pickNetFast() == MCM_NET_NONE) {
-            Serial.println("\n[MCM-OTA] Error crítico: Enlace físico perdido. Abortando descarga...");
+            Serial.println("\n[MCM-OTA] Critical error: Physical link lost. Aborting download...");
             return false;
         }
         size_t toRead = (remaining > (long long)sizeof(_global_buf)) ? sizeof(_global_buf) : (size_t)remaining;
