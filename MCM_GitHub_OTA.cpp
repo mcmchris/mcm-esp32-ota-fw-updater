@@ -332,8 +332,24 @@ void MCM_GitHub_OTA::checkForUpdate() {
 
     if (!success && !useAuth && browserUrl.length() > 0) {
         Serial.println("[MCM-OTA] Retrying via browser_download_url...");
-        if(clientPtr) clientPtr->stop(); 
-        performUpdate(clientPtr, browserUrl, false, netName);
+        // Detener el cliente si existe
+        if (clientPtr) {
+            clientPtr->stop();
+        } else {
+            // Si el puntero es nulo (por un OOM anterior), intentamos revivirlo
+            if (net == MCM_NET_ETH) {
+                clientPtr = new SSLClient(_eth_client, TAs, 0, -1, 1, 18200, _sslDebugLevel);
+            } else {
+                clientPtr = new SSLClient(_wifi_client, TAs, 0, -1, 1, 18200, _sslDebugLevel);
+            }
+            if (clientPtr) clientPtr->setInsecure();
+        }
+
+        if (clientPtr) {
+            performUpdate(clientPtr, browserUrl, false, netName);
+        } else {
+            Serial.println("[MCM-OTA] Fatal OOM: No se pudo asignar RAM para el cliente fallback.");
+        }
     }
     
     delete clientPtr;
@@ -477,6 +493,12 @@ bool MCM_GitHub_OTA::getJson(SSLClient* client, const String& url, String& bodyO
 }
 
 bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bool addAuth, const char* netName) {
+
+    if (!client) {
+        Serial.println("[MCM-OTA] Error crítico: Puntero nulo detectado en performUpdate");
+        return false;
+    }
+
     String url = startUrl;
     size_t wroteTotal = 0;
     size_t expectedTotal = 0;
@@ -488,8 +510,15 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bo
         String path = pathOf(url);
 
         Serial.printf("[MCM-OTA-%s] Connecting %s:%d\n", netName, host.c_str(), port);
+        int reconnectAttempts = 0; 
 
         RECONNECT:
+
+        if (reconnectAttempts >= 5) {
+            Serial.printf("[MCM-OTA] Max reconnect attempts reached (%u / %u bytes written).\n", (unsigned)wroteTotal, (unsigned)expectedTotal);
+            return false;
+        }
+
         if (pickNetFast() == MCM_NET_NONE) {
             Serial.println(String("\n[MCM-OTA-") + netName + "] Red desconectada. Pausando OTA y esperando reconexión...");
             
@@ -593,6 +622,7 @@ bool MCM_GitHub_OTA::performUpdate(SSLClient* client, const String& startUrl, bo
             if (!ok) {
                 client->stop();
                 if (haveExpected && wroteTotal < expectedTotal) {
+                    reconnectAttempts++;
                     Serial.printf("\n[MCM-OTA] Connection closed @ %u / %u. Resuming...\n", (unsigned)wroteTotal, (unsigned)expectedTotal);
                     delay(1000);
                     goto RECONNECT;
