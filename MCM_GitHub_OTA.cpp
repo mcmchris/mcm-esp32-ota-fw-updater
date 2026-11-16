@@ -66,6 +66,12 @@ bool MCM_GitHub_OTA::checkVersion() {
         return false;
     }
 
+    // Add a verification time to avoid issues with expired certificates on some devices
+    time_t now = time(nullptr);
+    if (now > 1600000000) {
+        clientPtr->setVerificationTime(now / 86400 + 719528, now % 86400);
+    }
+
     // 2. Perform GET request for JSON
     if (getJson(clientPtr, latestReleaseUrl(), body, netName, _token, httpCode)) {
         fetchSuccess = true;
@@ -151,6 +157,12 @@ void MCM_GitHub_OTA::checkForUpdate() {
     }
 
     if (clientPtr) {
+
+        time_t now = time(nullptr);
+        if (now > 1600000000) {
+            clientPtr->setVerificationTime(now / 86400 + 719528, now % 86400);
+        }
+        
         // We use modified getJson that returns the HTTP code in 'httpCode'
         // We pass _token by default
         if (getJson(clientPtr, latestReleaseUrl(), body, netName, _token, httpCode)) {
